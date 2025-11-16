@@ -31,6 +31,7 @@ pub struct App {
     ti: AppTerminal,
     ui: AppUI,
     quitting: bool,
+    tick_count: u32,
 }
 
 impl App {
@@ -40,6 +41,7 @@ impl App {
         let ti = AppTerminal::new()?;
         let ui = AppUI::new();
         let quitting = false;
+        let tick_count = 0;
         Ok(Self {
             client,
             cached_tasks,
@@ -47,6 +49,7 @@ impl App {
             ti,
             ui,
             quitting,
+            tick_count,
         })
     }
 
@@ -151,7 +154,13 @@ impl App {
 
     fn execute_action(&mut self, action: Action, tx: &UnboundedSender<Action>) -> Result<()> {
         match action {
-            Action::Tick => {}
+            Action::Tick => {
+                self.tick_count += 1;
+                if self.tick_count >= 60 {
+                    self.tick_count = 0;
+                    tx.send(Action::RefreshTasks)?;
+                }
+            }
             Action::Render(last_frame) => self.render(last_frame)?,
             Action::Resize(w, h) => self.ti.resize(w, h)?,
             Action::Quit => self.quitting = true,

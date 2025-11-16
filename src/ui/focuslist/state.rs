@@ -3,6 +3,7 @@ use tachyonfx::RefRect;
 
 use crate::ui::animate::{AnimatedArea, Animation};
 
+#[derive(Clone, Copy, Debug)]
 pub enum FocusListPosition {
     PrevPrev,
     Prev,

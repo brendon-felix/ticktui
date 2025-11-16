@@ -2,10 +2,10 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
     text::Line,
-    widgets::{Block, Clear, Widget},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget},
 };
 use std::{
     sync::Arc,
@@ -69,8 +69,30 @@ impl FocusModeUI {
     }
 
     pub fn update_tasks(&mut self, tasks: Vec<Arc<Task>>) {
+        let len_before = self.tasks.len();
         self.set_tasks(tasks);
         self.filter_tasks(|now, task| is_due_today(now, task) | is_overdue(now, task));
+        if len_before != self.tasks.len() {
+            let duration = Duration::from_millis(1000);
+            [
+                FocusListPosition::Prev,
+                FocusListPosition::Focused,
+                FocusListPosition::Next,
+            ]
+            .iter()
+            .for_each(|pos| {
+                if let Some(area_ref) = self.list_state.get_area_ref(*pos) {
+                    let fx = fx::dynamic_area(
+                        area_ref,
+                        fx::fade_from_fg(
+                            Color::Rgb(25, 25, 25),
+                            EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut),
+                        ),
+                    );
+                    self.effects.add_effect(fx);
+                }
+            });
+        }
         // self.task_list.tasks_loaded = true;
     }
 
@@ -244,7 +266,7 @@ impl FocusModeUI {
                     }
                 }
             }
-            KeyCode::Enter => {
+            KeyCode::Enter if self.list.len() > 0 => {
                 self.schedule_removal(200);
                 if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
                     let duration = Duration::from_millis(195);
@@ -382,15 +404,15 @@ impl FocusModeUI {
             .iter()
             .map(|task| create_list_item(task))
             .collect();
-
         self.list.set_items(items);
-        // self.list_state.set_last_frame(last_frame);
-        self.list_state.update_animations();
 
-        // if let Some(block) = self.current_block.clone() {
-        //     task_list = task_list.with_block(block);
-        // }
-        f.render_stateful_widget(&self.list, area, &mut self.list_state);
+        if self.list.len() > 0 {
+            self.list_state.update_animations();
+            f.render_stateful_widget(&self.list, area, &mut self.list_state);
+        } else {
+            render_no_tasks(f, area);
+        }
+
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), area);
@@ -428,4 +450,37 @@ fn format_date(dt: &DateTime<Utc>, is_all_day: bool, is_today: bool) -> Option<S
             (false, false) => Some(local.format("%m/%d/%Y %I:%M %p").to_string()),
         }
     }
+}
+
+fn render_no_tasks(f: &mut Frame, area: Rect) {
+    let r = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Fill(1),
+                Constraint::Length(5),
+                Constraint::Fill(1),
+            ]
+            .as_ref(),
+        )
+        .split(area)[1];
+    let r = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Fill(1),
+                Constraint::Length(30),
+                Constraint::Fill(1),
+            ]
+            .as_ref(),
+        )
+        .split(r)[1];
+    f.render_widget(
+        Paragraph::new("\nNo tasks available").centered().block(
+            Block::new()
+                .borders(Borders::ALL)
+                .border_set(BorderType::Rounded.to_border_set()),
+        ),
+        r,
+    );
 }
