@@ -265,7 +265,7 @@ impl FocusModeUI {
             KeyCode::Enter if self.list.len() > 0 => {
                 self.schedule_removal(300);
                 if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
-                    let duration = Duration::from_millis(195);
+                    let duration = Duration::from_millis(300);
                     let timer =
                         EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut);
                     let c = Color::Rgb(25, 25, 25);
