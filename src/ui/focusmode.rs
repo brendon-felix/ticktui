@@ -126,7 +126,7 @@ impl FocusModeUI {
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {
         let idx = self.list.focused_index();
         match key_event.code {
-            KeyCode::Char('j') => {
+            KeyCode::Char('j') | KeyCode::Down => {
                 self.list.focus_next();
                 if idx != self.list.focused_index() {
                     let translate = AnimationType::TranslateFrom { x: 0, y: 10 };
@@ -194,7 +194,7 @@ impl FocusModeUI {
                     }
                 }
             }
-            KeyCode::Char('k') => {
+            KeyCode::Char('k') | KeyCode::Up => {
                 self.list.focus_previous();
                 if idx != self.list.focused_index() {
                     let translate = AnimationType::TranslateFrom { x: 0, y: -10 };
