@@ -4,10 +4,9 @@ use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
-    style::Color,
     widgets::{Block, BorderType, Borders},
 };
-use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
+use tachyonfx::{EffectManager, EffectTimer, Interpolation, fx};
 use ticks::tasks::Task;
 use tui_textarea::Input;
 

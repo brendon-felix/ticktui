@@ -4,7 +4,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style, Stylize},
-    text::{Line, Span},
+    text::Line,
     widgets::{Block, BorderType, Paragraph},
 };
 use std::{sync::Arc, time::Instant};

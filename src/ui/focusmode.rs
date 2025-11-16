@@ -2,7 +2,6 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
-    buffer::Buffer,
     layout::Rect,
     style::{Color, Style, Stylize},
     text::Line,
@@ -12,14 +11,17 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tachyonfx::EffectManager;
+use tachyonfx::{EffectManager, EffectTimer, fx};
 use ticks::tasks::Task;
 
 use crate::{
     tasks::{is_due_today, is_overdue},
     ui::{
         animate::{Animation, AnimationDirection, AnimationType},
-        focuslist::{FocusList, FocusListItem, state::FocusListState},
+        focuslist::{
+            FocusList, FocusListItem,
+            state::{FocusListPosition, FocusListState},
+        },
     },
 };
 
@@ -28,11 +30,12 @@ pub struct FocusModeUI {
     // test_content: String,
     tasks: Vec<Arc<Task>>,
     list: FocusList<'static>,
-    list_state: FocusListState<'static>,
+    list_state: FocusListState,
     // prev_buf: Buffer,
     // focus_buf: Buffer,
     // next_buf: Buffer,
     effects: EffectManager<()>,
+    pending_removal: Option<(usize, Instant)>, // (task_index, removal_time)
 }
 
 impl FocusModeUI {
@@ -71,6 +74,29 @@ impl FocusModeUI {
         // self.task_list.tasks_loaded = true;
     }
 
+    pub fn schedule_removal(&mut self, delay_ms: u64) {
+        if let Some(idx) = self.list.focused_index() {
+            let removal_time = Instant::now() + Duration::from_millis(delay_ms);
+            self.pending_removal = Some((idx, removal_time));
+        }
+    }
+
+    pub fn process_pending_removal(&mut self) {
+        if let Some((idx, removal_time)) = self.pending_removal {
+            if Instant::now() >= removal_time {
+                if idx < self.tasks.len() {
+                    self.tasks.remove(idx);
+                    if self.tasks.is_empty() {
+                        self.list.focus(None);
+                    } else if idx >= self.tasks.len() {
+                        self.list.focus(Some(self.tasks.len() - 1));
+                    }
+                }
+                self.pending_removal = None;
+            }
+        }
+    }
+
     pub fn is_in_insert_mode(&self) -> bool {
         false
     }
@@ -81,36 +107,244 @@ impl FocusModeUI {
             KeyCode::Char('j') => {
                 self.list.focus_next();
                 if idx != self.list.focused_index() {
-                    // let animation_type = AnimationType::Resize {
-                    //     dir: AnimationDirection::Vertical,
-                    //     amount: 10,
-                    // };
-                    let animation_type = AnimationType::Translate { x: 0, y: -10 };
-                    // let duration = Duration::from_millis(200);
-                    // let animation = Animation::new(animation_type, duration);
-                    // self.list_state.start_focused_animation(animation);
-                    // let animation_type = AnimationType::Translate { x: 0, y: -10 };
+                    let translate = AnimationType::TranslateFrom { x: 0, y: 10 };
+                    let translate_shrink = vec![
+                        AnimationType::TranslateFrom { x: 0, y: 10 },
+                        AnimationType::ResizeFrom {
+                            dir: AnimationDirection::Horizontal,
+                            amount: 20,
+                        },
+                    ];
+                    let translate_grow = vec![
+                        AnimationType::TranslateFrom { x: 0, y: 10 },
+                        AnimationType::ResizeFrom {
+                            dir: AnimationDirection::Horizontal,
+                            amount: -20,
+                        },
+                    ];
+                    let translate_shrink = AnimationType::Composite(translate_shrink);
+                    let translate_grow = AnimationType::Composite(translate_grow);
                     let duration = Duration::from_millis(200);
-                    let animation = Animation::new(animation_type, duration);
-                    self.list_state.start_focused_animation(animation.clone());
-                    self.list_state.start_prev_animation(animation.clone());
-                    self.list_state.start_next_animation(animation);
+                    self.list_state.start_animation(
+                        Animation::new(translate_grow, duration),
+                        FocusListPosition::Focused,
+                    );
+                    self.list_state.start_animation(
+                        Animation::new(translate_shrink, duration),
+                        FocusListPosition::Prev,
+                    );
+                    self.list_state.start_animation(
+                        Animation::new(translate.clone(), duration),
+                        FocusListPosition::Next,
+                    );
+                    // self.list_state.start_animation(
+                    //     Animation::new(translate.clone(), duration),
+                    //     FocusListPosition::NextNext,
+                    // );
+                    if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Next) {
+                        let fx = fx::dynamic_area(
+                            area_ref,
+                            fx::fade_from_fg(
+                                Color::Rgb(25, 25, 25),
+                                EffectTimer::new(
+                                    duration.into(),
+                                    tachyonfx::Interpolation::SineOut,
+                                ),
+                            ),
+                        );
+                        self.effects.add_effect(fx);
+                    }
+                    let translate = AnimationType::TranslateTo { x: 0, y: -10 };
+                    self.list_state.start_animation(
+                        Animation::new(translate.clone(), duration),
+                        FocusListPosition::PrevPrev,
+                    );
+                    if let Some(area_ref) =
+                        self.list_state.get_area_ref(FocusListPosition::PrevPrev)
+                    {
+                        let fx = fx::dynamic_area(
+                            area_ref,
+                            fx::fade_to_fg(
+                                Color::Rgb(25, 25, 25),
+                                EffectTimer::new(
+                                    duration.into(),
+                                    tachyonfx::Interpolation::SineOut,
+                                ),
+                            ),
+                        );
+                        self.effects.add_effect(fx);
+                    }
                 }
             }
             KeyCode::Char('k') => {
                 self.list.focus_previous();
                 if idx != self.list.focused_index() {
-                    // let animation_type = AnimationType::Resize {
-                    //     dir: AnimationDirection::Vertical,
-                    //     amount: -10,
-                    // };
-                    let animation_type = AnimationType::Translate { x: 0, y: 10 };
+                    let translate = AnimationType::TranslateFrom { x: 0, y: -10 };
+                    let translate_shrink = vec![
+                        AnimationType::TranslateFrom { x: 0, y: -10 },
+                        AnimationType::ResizeFrom {
+                            dir: AnimationDirection::Horizontal,
+                            amount: 20,
+                        },
+                    ];
+                    let translate_grow = vec![
+                        AnimationType::TranslateFrom { x: 0, y: -10 },
+                        AnimationType::ResizeFrom {
+                            dir: AnimationDirection::Horizontal,
+                            amount: -20,
+                        },
+                    ];
+                    let translate_shrink = AnimationType::Composite(translate_shrink);
+                    let translate_grow = AnimationType::Composite(translate_grow);
                     let duration = Duration::from_millis(200);
-                    let animation = Animation::new(animation_type, duration);
-                    self.list_state.start_focused_animation(animation.clone());
-                    self.list_state.start_prev_animation(animation.clone());
-                    self.list_state.start_next_animation(animation);
+                    self.list_state.start_animation(
+                        Animation::new(translate_grow, duration),
+                        FocusListPosition::Focused,
+                    );
+                    self.list_state.start_animation(
+                        Animation::new(translate, duration),
+                        FocusListPosition::Prev,
+                    );
+                    self.list_state.start_animation(
+                        Animation::new(translate_shrink, duration),
+                        FocusListPosition::Next,
+                    );
+                    if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Prev) {
+                        let fx = fx::dynamic_area(
+                            area_ref,
+                            fx::fade_from_fg(
+                                Color::Rgb(25, 25, 25),
+                                EffectTimer::new(
+                                    duration.into(),
+                                    tachyonfx::Interpolation::SineOut,
+                                ),
+                            ),
+                        );
+                        self.effects.add_effect(fx);
+                    }
+                    let translate = AnimationType::TranslateTo { x: 0, y: 10 };
+                    self.list_state.start_animation(
+                        Animation::new(translate.clone(), duration),
+                        FocusListPosition::NextNext,
+                    );
+                    if let Some(area_ref) =
+                        self.list_state.get_area_ref(FocusListPosition::NextNext)
+                    {
+                        let fx = fx::dynamic_area(
+                            area_ref,
+                            fx::fade_to_fg(
+                                Color::Rgb(25, 25, 25),
+                                EffectTimer::new(
+                                    duration.into(),
+                                    tachyonfx::Interpolation::SineOut,
+                                ),
+                            ),
+                        );
+                        self.effects.add_effect(fx);
+                    }
                 }
+            }
+            KeyCode::Enter => {
+                self.schedule_removal(200);
+                if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
+                    let duration = Duration::from_millis(195);
+                    let timer =
+                        EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut);
+                    let fx = fx::dynamic_area(area_ref, fx::explode(2.0, 2.0, timer));
+                    self.effects.add_effect(fx);
+                }
+                if let Some(i) = self.list.focused_index() {
+                    if i + 1 < self.tasks.len() {
+                        let translate = AnimationType::TranslateFrom { x: 0, y: 10 };
+                        let translate_grow = vec![
+                            AnimationType::TranslateFrom { x: 0, y: 10 },
+                            AnimationType::ResizeFrom {
+                                dir: AnimationDirection::Horizontal,
+                                amount: -20,
+                            },
+                        ];
+                        let translate_grow = AnimationType::Composite(translate_grow);
+                        let duration = Duration::from_millis(200);
+                        let delay = Duration::from_millis(200);
+                        self.list_state.start_animation(
+                            Animation::new(
+                                AnimationType::Delay(delay, Box::new(translate_grow)),
+                                duration,
+                            ),
+                            FocusListPosition::Focused,
+                        );
+                        self.list_state.start_animation(
+                            Animation::new(
+                                AnimationType::Delay(delay, Box::new(translate)),
+                                duration,
+                            ),
+                            FocusListPosition::Next,
+                        );
+                        if let Some(area_ref) =
+                            self.list_state.get_area_ref(FocusListPosition::Next)
+                        {
+                            let fx = fx::delay(
+                                EffectTimer::new(delay.into(), tachyonfx::Interpolation::Linear),
+                                fx::dynamic_area(
+                                    area_ref,
+                                    fx::fade_from_fg(
+                                        Color::Rgb(25, 25, 25),
+                                        EffectTimer::new(
+                                            duration.into(),
+                                            tachyonfx::Interpolation::SineOut,
+                                        ),
+                                    ),
+                                ),
+                            );
+                            self.effects.add_effect(fx);
+                        }
+                    } else {
+                        let translate = AnimationType::TranslateFrom { x: 0, y: -10 };
+                        let translate_grow = vec![
+                            AnimationType::TranslateFrom { x: 0, y: -10 },
+                            AnimationType::ResizeFrom {
+                                dir: AnimationDirection::Horizontal,
+                                amount: -20,
+                            },
+                        ];
+                        let translate_grow = AnimationType::Composite(translate_grow);
+                        let duration = Duration::from_millis(200);
+                        let delay = Duration::from_millis(200);
+                        self.list_state.start_animation(
+                            Animation::new(
+                                AnimationType::Delay(delay, Box::new(translate_grow)),
+                                duration,
+                            ),
+                            FocusListPosition::Focused,
+                        );
+                        self.list_state.start_animation(
+                            Animation::new(
+                                AnimationType::Delay(delay, Box::new(translate)),
+                                duration,
+                            ),
+                            FocusListPosition::Prev,
+                        );
+                        if let Some(area_ref) =
+                            self.list_state.get_area_ref(FocusListPosition::Prev)
+                        {
+                            let fx = fx::delay(
+                                EffectTimer::new(delay.into(), tachyonfx::Interpolation::Linear),
+                                fx::dynamic_area(
+                                    area_ref,
+                                    fx::fade_from_fg(
+                                        Color::Rgb(25, 25, 25),
+                                        EffectTimer::new(
+                                            duration.into(),
+                                            tachyonfx::Interpolation::SineOut,
+                                        ),
+                                    ),
+                                ),
+                            );
+                            self.effects.add_effect(fx);
+                        }
+                    }
+                }
+                // }
             }
             _ => {}
         }
@@ -138,6 +372,7 @@ impl FocusModeUI {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
+        self.process_pending_removal();
         Clear.render(f.area(), f.buffer_mut());
         Block::default()
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))

@@ -4,14 +4,17 @@ pub mod state;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style, Stylize},
+    style::Style,
     text::Text,
-    widgets::{Block, BorderType, Borders, Paragraph, StatefulWidget, Widget},
+    widgets::{Block, StatefulWidget, Widget},
 };
 
 use state::FocusListState;
 
-use crate::ui::focuslist::focused::{FocusedItem, NextPrevItem};
+use crate::ui::focuslist::{
+    focused::{FocusedItem, NextPrevItem},
+    state::FocusListPosition,
+};
 
 #[derive(Clone)]
 pub struct FocusListItem<'a> {
@@ -61,6 +64,10 @@ impl<'a> FocusList<'a> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
     pub fn with_block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
         self
@@ -88,6 +95,19 @@ impl<'a> FocusList<'a> {
         self.focused_index
     }
 
+    pub fn next_next_index(&self) -> Option<usize> {
+        if let Some(current) = self.focused_index {
+            let next = current.saturating_add(2);
+            if next < self.items.len() {
+                Some(next)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
     pub fn next_index(&self) -> Option<usize> {
         if let Some(current) = self.focused_index {
             let next = current.saturating_add(1);
@@ -101,10 +121,22 @@ impl<'a> FocusList<'a> {
         }
     }
 
-    pub fn previous_index(&self) -> Option<usize> {
+    pub fn prev_index(&self) -> Option<usize> {
         if let Some(current) = self.focused_index {
             if current > 0 {
                 Some(current.saturating_sub(1))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn prev_prev_index(&self) -> Option<usize> {
+        if let Some(current) = self.focused_index {
+            if current >= 2 {
+                Some(current.saturating_sub(2))
             } else {
                 None
             }
@@ -149,10 +181,10 @@ impl<'a> FocusList<'a> {
 }
 
 impl<'a> StatefulWidget for &FocusList<'a> {
-    type State = FocusListState<'a>;
+    type State = FocusListState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let layout = Layout::default()
+        Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Fill(1),
@@ -168,186 +200,86 @@ impl<'a> StatefulWidget for &FocusList<'a> {
             .enumerate()
             .for_each(|(i, rect)| match i {
                 1 => {
-                    if let Some(area) = state.get_prev_area() {
-                        if let Some(previous) = self.previous_index() {
-                            if previous < self.items.len() {
-                                let item = self.items[previous].clone();
-                                if state.prev_area.as_ref().unwrap().is_completed() {
-                                    state.prev_old_item = Some(item.clone());
-                                    NextPrevItem::new(item).render(area, buf);
-                                } else {
-                                    if let Some(old_item) = state.prev_old_item.clone() {
-                                        NextPrevItem::new(old_item).render(area, buf);
-                                    }
-                                }
-                            }
-                        }
+                    let area = if let Some(area) = state.get_area(FocusListPosition::PrevPrev) {
+                        area
                     } else {
-                        let centered = Layout::default()
-                            .direction(Direction::Horizontal)
-                            .constraints(vec![
-                                Constraint::Fill(1),
-                                Constraint::Max(50),
-                                Constraint::Fill(1),
-                            ])
-                            .split(*rect)[1];
-                        state.set_prev_area(centered.clone());
-                        if let Some(previous) = self.previous_index() {
-                            if previous < self.items.len() {
-                                let item = self.items[previous].clone();
-                                if state.prev_area.as_ref().unwrap().is_completed() {
-                                    state.prev_old_item = Some(item.clone());
-                                    NextPrevItem::new(item).render(area, buf);
-                                } else {
-                                    if let Some(old_item) = state.prev_old_item.clone() {
-                                        NextPrevItem::new(old_item).render(area, buf);
-                                    }
-                                }
+                        let area = constrained_centered_area(*rect, 50);
+                        state.set_area(area, FocusListPosition::PrevPrev);
+                        area
+                    };
+                    if let Some(prev_prev) = self.prev_prev_index() {
+                        if let Some(anim_area) = &state.prev_prev_area {
+                            if !anim_area.is_completed() {
+                                let item: FocusListItem<'_> = self.items[prev_prev].clone();
+                                NextPrevItem::new(item).render(area, buf);
                             }
                         }
+                    }
+                    let area = if let Some(area) = state.get_area(FocusListPosition::Prev) {
+                        area
+                    } else {
+                        let area = constrained_centered_area(*rect, 50);
+                        state.set_area(area, FocusListPosition::Prev);
+                        area
+                    };
+                    if let Some(previous) = self.prev_index() {
+                        let item: FocusListItem<'_> = self.items[previous].clone();
+                        NextPrevItem::new(item).render(area, buf);
                     }
                 }
                 3 => {
-                    if let Some(area) = state.get_focused_area() {
-                        if let Some(focused) = self.focused_index() {
-                            if focused < self.items.len() {
-                                let item = self.items[focused].clone();
-                                if state.focused_area.as_ref().unwrap().is_completed() {
-                                    state.focused_old_item = Some(item.clone());
-                                    FocusedItem::new(item).render(area, buf);
-                                } else {
-                                    if let Some(old_item) = state.focused_old_item.clone() {
-                                        NextPrevItem::new(old_item).render(area, buf);
-                                    }
-                                }
-                            }
-                        }
+                    let area = if let Some(area) = state.get_area(FocusListPosition::Focused) {
+                        area
                     } else {
-                        let centered = Layout::default()
-                            .direction(Direction::Horizontal)
-                            .constraints(vec![
-                                Constraint::Fill(1),
-                                Constraint::Max(50),
-                                Constraint::Fill(1),
-                            ])
-                            .split(*rect)[1];
-                        state.set_focused_area(centered.clone());
-                        if let Some(focused) = self.focused_index() {
-                            if focused < self.items.len() {
-                                let item = self.items[focused].clone();
-                                if state.focused_area.as_ref().unwrap().is_completed() {
-                                    state.focused_old_item = Some(item.clone());
-                                    FocusedItem::new(item).render(area, buf);
-                                } else {
-                                    if let Some(old_item) = state.focused_old_item.clone() {
-                                        NextPrevItem::new(old_item).render(area, buf);
-                                    }
-                                }
-                            }
-                        }
+                        let area = constrained_centered_area(*rect, 70);
+                        state.set_area(area, FocusListPosition::Focused);
+                        area
+                    };
+                    if let Some(focused) = self.focused_index() {
+                        let item: FocusListItem<'_> = self.items[focused].clone();
+                        FocusedItem::new(item).render(area, buf);
                     }
                 }
                 5 => {
-                    if let Some(area) = state.get_next_area() {
-                        if let Some(next) = self.next_index() {
-                            if next < self.items.len() {
-                                let item = self.items[next].clone();
-                                if state.next_area.as_ref().unwrap().is_completed() {
-                                    state.next_old_item = Some(item.clone());
-                                    NextPrevItem::new(item).render(area, buf);
-                                } else {
-                                    if let Some(old_item) = state.next_old_item.clone() {
-                                        NextPrevItem::new(old_item).render(area, buf);
-                                    }
-                                }
-                            }
-                        }
+                    let area = if let Some(area) = state.get_area(FocusListPosition::NextNext) {
+                        area
                     } else {
-                        let centered = Layout::default()
-                            .direction(Direction::Horizontal)
-                            .constraints(vec![
-                                Constraint::Fill(1),
-                                Constraint::Max(50),
-                                Constraint::Fill(1),
-                            ])
-                            .split(*rect)[1];
-                        state.set_next_area(centered.clone());
-                        if let Some(next) = self.next_index() {
-                            if next < self.items.len() {
-                                let item = self.items[next].clone();
-                                if state.next_area.as_ref().unwrap().is_completed() {
-                                    state.next_old_item = Some(item.clone());
-                                    NextPrevItem::new(item).render(area, buf);
-                                } else {
-                                    if let Some(old_item) = state.next_old_item.clone() {
-                                        NextPrevItem::new(old_item).render(area, buf);
-                                    }
-                                }
+                        let area = constrained_centered_area(*rect, 50);
+                        state.set_area(area, FocusListPosition::NextNext);
+                        area
+                    };
+                    if let Some(next_next) = self.next_next_index() {
+                        if let Some(anim_area) = &state.next_next_area {
+                            if !anim_area.is_completed() {
+                                let item: FocusListItem<'_> = self.items[next_next].clone();
+                                NextPrevItem::new(item).render(area, buf);
                             }
                         }
+                    }
+                    let area = if let Some(area) = state.get_area(FocusListPosition::Next) {
+                        area
+                    } else {
+                        let area = constrained_centered_area(*rect, 50);
+                        state.set_area(area, FocusListPosition::Next);
+                        area
+                    };
+                    if let Some(next) = self.next_index() {
+                        let item: FocusListItem<'_> = self.items[next].clone();
+                        NextPrevItem::new(item).render(area, buf);
                     }
                 }
                 _ => {}
             });
-
-        // if let Some(focused) = self.focused_index() {
-        //     let centered = Layout::default()
-        //         .direction(Direction::Horizontal)
-        //         .constraints(vec![
-        //             Constraint::Fill(1),
-        //             Constraint::Max(50),
-        //             Constraint::Fill(1),
-        //         ])
-        //         .split(layout[3])[1];
-        //     state.set_focused_area(centered.clone());
-        //     if focused < self.items.len() {
-        //         let item = self.items[focused].clone();
-        //         FocusedItem::new(item).render(centered, buf);
-        //     }
-
-        //     let centered = Layout::default()
-        //         .direction(Direction::Horizontal)
-        //         .constraints(vec![
-        //             Constraint::Fill(1),
-        //             Constraint::Max(50),
-        //             Constraint::Fill(1),
-        //         ])
-        //         .split(layout[1])[1];
-        //     state.set_prev_area(centered.clone());
-        //     if let Some(previous) = self.previous_index() {
-        //         if previous < self.items.len() {
-        //             let item = &self.items[previous];
-        //             let block = Block::default()
-        //                 .borders(Borders::ALL)
-        //                 .border_set(BorderType::Rounded.to_border_set())
-        //                 .style(Style::default().dim());
-        //             let inner = block.inner(centered);
-        //             block.render(centered, buf);
-        //             Widget::render(item.content.clone().centered(), inner, buf);
-        //         }
-        //     }
-
-        //     let centered = Layout::default()
-        //         .direction(Direction::Horizontal)
-        //         .constraints(vec![
-        //             Constraint::Fill(1),
-        //             Constraint::Max(50),
-        //             Constraint::Fill(1),
-        //         ])
-        //         .split(layout[5])[1];
-        //     state.set_next_area(centered.clone());
-        //     if let Some(next) = self.next_index() {
-        //         if next < self.items.len() {
-        //             let item = &self.items[next];
-        //             let block = Block::default()
-        //                 .borders(Borders::ALL)
-        //                 .border_set(BorderType::Rounded.to_border_set())
-        //                 .style(Style::default().dim());
-        //             let inner = block.inner(centered);
-        //             block.render(centered, buf);
-        //             Widget::render(item.content.clone().centered(), inner, buf);
-        //         }
-        //     }
-        // }
     }
+}
+
+fn constrained_centered_area(area: Rect, max: u16) -> Rect {
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints(vec![
+            Constraint::Fill(1),
+            Constraint::Max(max),
+            Constraint::Fill(1),
+        ])
+        .split(area)[1]
 }
