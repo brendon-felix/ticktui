@@ -10,6 +10,7 @@ mod multiselect;
 mod normalmode;
 mod taskeditor;
 mod tasklist;
+mod utils;
 
 use focusmode::FocusModeUI;
 use normalmode::NormalModeUI;

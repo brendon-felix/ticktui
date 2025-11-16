@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
@@ -24,6 +24,7 @@ use crate::{
             FocusList, FocusListItem,
             state::{FocusListPosition, FocusListState},
         },
+        utils::format_date,
     },
 };
 
@@ -461,19 +462,6 @@ fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
         Line::from("")
     };
     FocusListItem::new(vec![line1, line2, line3])
-}
-
-fn format_date(dt: &DateTime<Utc>, is_all_day: bool, is_today: bool) -> Option<String> {
-    if dt.timestamp() == 0 {
-        None
-    } else {
-        let local: DateTime<Local> = dt.with_timezone(&Local);
-        match (is_today, is_all_day) {
-            (true, _) => Some(local.format("Today %I:%M %p").to_string()),
-            (false, true) => Some(local.format("%m/%d/%Y").to_string()),
-            (false, false) => Some(local.format("%m/%d/%Y %I:%M %p").to_string()),
-        }
-    }
 }
 
 fn render_no_tasks(f: &mut Frame, area: Rect) {
