@@ -273,6 +273,8 @@ impl FocusModeUI {
                         area_ref,
                         fx::parallel(&[fx::explode(2.0, 2.0, timer), fx::paint_bg(c, timer)]),
                     );
+                    // let fx = fx::dynamic_area(area_ref, fx::fade_to_fg(c, timer));
+                    // let fx = fx::dynamic_area(area_ref, fx::dissolve(timer)); // use this for deleting tasks instead
                     self.effects.add_effect(fx);
                 }
                 if let Some(i) = self.list.focused_index() {
@@ -331,7 +333,7 @@ impl FocusModeUI {
                         ];
                         let translate_grow = AnimationType::Composite(translate_grow);
                         let duration = Duration::from_millis(200);
-                        let delay = Duration::from_millis(200);
+                        let delay = Duration::from_millis(300);
                         self.list_state.start_animation(
                             Animation::new(
                                 AnimationType::Delay(delay, Box::new(translate_grow)),
