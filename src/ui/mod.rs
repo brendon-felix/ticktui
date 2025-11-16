@@ -15,6 +15,9 @@ use focusmode::FocusModeUI;
 use normalmode::NormalModeUI;
 use std::{sync::Arc, time::Instant};
 use ticks::tasks::Task;
+use tokio::sync::mpsc::UnboundedSender;
+
+use crate::app::AppAction;
 
 enum AppUIMode {
     Focus,
@@ -25,14 +28,16 @@ pub struct AppUI {
     mode: AppUIMode,
     focus_ui: FocusModeUI,
     normal_ui: NormalModeUI,
+    // tx: UnboundedSender<AppAction>,
 }
 
 impl AppUI {
-    pub fn new() -> Self {
+    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         Self {
             mode: AppUIMode::Normal,
-            focus_ui: FocusModeUI::default(),
-            normal_ui: NormalModeUI::new(),
+            focus_ui: FocusModeUI::new(tx.clone()),
+            normal_ui: NormalModeUI::new(tx),
+            // tx,
         }
     }
 

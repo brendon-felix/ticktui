@@ -1,20 +1,23 @@
+use anyhow::{Error, Result};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
+use ticks::{
+    TickTick,
+    projects::ProjectID,
+    tasks::{Task, TaskID},
+};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    tasks::fetch_all_tasks,
+    tasks::{self, TaskAction, fetch_all_tasks},
     term::{self, AppTerminal},
     ui::AppUI,
 };
 
-use anyhow::{Error, Result};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
-use ticks::{TickTick, tasks::Task};
-use tokio::sync::mpsc::{self, UnboundedSender};
-
-enum Action {
+pub enum AppAction {
     Tick,
     Render(Instant),
     Resize(u16, u16),
@@ -22,6 +25,7 @@ enum Action {
     Error(Error),
     RefreshTasks,
     UpdateCache,
+    TaskAction(ProjectID, TaskID, TaskAction),
 }
 
 pub struct App {
@@ -32,14 +36,17 @@ pub struct App {
     ui: AppUI,
     quitting: bool,
     tick_count: u32,
+    tx: UnboundedSender<AppAction>,
+    rx: UnboundedReceiver<AppAction>,
 }
 
 impl App {
     pub fn new(client: Arc<TickTick>) -> Result<Self> {
+        let (tx, rx) = mpsc::unbounded_channel();
         let cached_tasks = Vec::new();
         let pending_tasks = Arc::new(Mutex::new(None));
         let ti = AppTerminal::new()?;
-        let ui = AppUI::new();
+        let ui = AppUI::new(tx.clone());
         let quitting = false;
         let tick_count = 0;
         Ok(Self {
@@ -50,20 +57,22 @@ impl App {
             ui,
             quitting,
             tick_count,
+            tx,
+            rx,
         })
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let tx = self.tx.clone();
         self.ti.enter()?;
-        tx.send(Action::RefreshTasks)?;
+        self.tx.send(AppAction::RefreshTasks)?;
 
         loop {
             if let Some(event) = self.ti.next().await {
                 self.handle_event(event, &tx)?;
             }
 
-            while let Ok(action) = rx.try_recv() {
+            while let Ok(action) = self.rx.try_recv() {
                 self.execute_action(action, &tx)?;
             }
 
@@ -76,7 +85,7 @@ impl App {
         Ok(())
     }
 
-    fn refresh_tasks(&mut self, tx: UnboundedSender<Action>) {
+    fn refresh_tasks(&mut self, tx: UnboundedSender<AppAction>) {
         let client = Arc::clone(&self.client);
         let pending = Arc::clone(&self.pending_tasks);
         tokio::spawn(async move {
@@ -86,10 +95,10 @@ impl App {
                     if let Ok(mut guard) = pending.lock() {
                         *guard = Some(tasks);
                     }
-                    let _ = tx.send(Action::UpdateCache);
+                    let _ = tx.send(AppAction::UpdateCache);
                 }
                 Err(e) => {
-                    let _ = tx.send(Action::Error(e));
+                    let _ = tx.send(AppAction::Error(e));
                 }
             }
         });
@@ -108,12 +117,12 @@ impl App {
         }
     }
 
-    fn handle_event(&mut self, event: term::Event, tx: &UnboundedSender<Action>) -> Result<()> {
+    fn handle_event(&mut self, event: term::Event, tx: &UnboundedSender<AppAction>) -> Result<()> {
         match event {
-            // term::Event::Quit => tx.send(Action::Quit)?,
-            term::Event::Tick => tx.send(Action::Tick)?,
-            term::Event::Render(last) => tx.send(Action::Render(last))?,
-            term::Event::Resize(w, h) => tx.send(Action::Resize(w, h))?,
+            // term::Event::Quit => tx.send(AppAction::Quit)?,
+            term::Event::Tick => tx.send(AppAction::Tick)?,
+            term::Event::Render(last) => tx.send(AppAction::Render(last))?,
+            term::Event::Resize(w, h) => tx.send(AppAction::Resize(w, h))?,
             term::Event::Key(key) => self.handle_key_event(key, tx)?,
             term::Event::Mouse(mouse) => self.handle_mouse_event(mouse, tx)?,
             term::Event::Paste(_content) => {}
@@ -125,18 +134,18 @@ impl App {
     fn handle_key_event(
         &mut self,
         key_event: KeyEvent,
-        tx: &UnboundedSender<Action>,
+        tx: &UnboundedSender<AppAction>,
     ) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => {
                 if self.ui.is_in_insert_mode() {
                     self.ui.handle_key_event(key_event);
                 } else {
-                    tx.send(Action::Quit)?;
+                    tx.send(AppAction::Quit)?;
                 }
             }
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                tx.send(Action::Quit)?
+                tx.send(AppAction::Quit)?
             }
             _ => self.ui.handle_key_event(key_event),
         }
@@ -146,29 +155,49 @@ impl App {
     fn handle_mouse_event(
         &mut self,
         mouse_event: MouseEvent,
-        _tx: &UnboundedSender<Action>,
+        _tx: &UnboundedSender<AppAction>,
     ) -> Result<()> {
         self.ui.handle_mouse_event(mouse_event);
         Ok(())
     }
 
-    fn execute_action(&mut self, action: Action, tx: &UnboundedSender<Action>) -> Result<()> {
+    fn execute_action(&mut self, action: AppAction, tx: &UnboundedSender<AppAction>) -> Result<()> {
         match action {
-            Action::Tick => {
+            AppAction::Tick => {
                 self.tick_count += 1;
                 if self.tick_count >= 60 {
                     self.tick_count = 0;
-                    tx.send(Action::RefreshTasks)?;
+                    tx.send(AppAction::RefreshTasks)?;
                 }
             }
-            Action::Render(last_frame) => self.render(last_frame)?,
-            Action::Resize(w, h) => self.ti.resize(w, h)?,
-            Action::Quit => self.quitting = true,
-            Action::RefreshTasks => self.refresh_tasks(tx.clone()),
-            Action::UpdateCache => self.update_cache(),
-            Action::Error(_e) => {}
+            AppAction::Render(last_frame) => self.render(last_frame)?,
+            AppAction::Resize(w, h) => self.ti.resize(w, h)?,
+            AppAction::Quit => self.quitting = true,
+            AppAction::RefreshTasks => self.refresh_tasks(tx.clone()),
+            AppAction::UpdateCache => self.update_cache(),
+            AppAction::TaskAction(p_id, t_id, action) => {
+                self.execute_task_action(p_id, t_id, action)
+            }
+            AppAction::Error(_e) => {}
         }
         Ok(())
+    }
+
+    fn execute_task_action(&mut self, project_id: ProjectID, task_id: TaskID, action: TaskAction) {
+        let client = Arc::clone(&self.client);
+        tokio::spawn(async move {
+            match action {
+                TaskAction::Complete => {
+                    let _ = tasks::complete_task(&client, &project_id, &task_id).await;
+                }
+                // TaskAction::Uncomplete => {
+                //     let _ = client.uncomplete_task(&project_id, &task_id).await;
+                // }
+                // TaskAction::Delete => {
+                //     let _ = tasks::delete_task(&project_id, &task_id).await;
+                // }
+            }
+        });
     }
 
     fn render(&mut self, last_frame: Instant) -> Result<()> {

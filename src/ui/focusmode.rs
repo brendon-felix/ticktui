@@ -13,9 +13,11 @@ use std::{
 };
 use tachyonfx::{EffectManager, EffectTimer, fx};
 use ticks::tasks::Task;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    tasks::{is_due_today, is_overdue},
+    app::AppAction,
+    tasks::{TaskAction, is_due_today, is_overdue},
     ui::{
         animate::{Animation, AnimationDirection, AnimationType},
         focuslist::{
@@ -25,7 +27,6 @@ use crate::{
     },
 };
 
-#[derive(Default)]
 pub struct FocusModeUI {
     // test_content: String,
     tasks: Vec<Arc<Task>>,
@@ -35,10 +36,22 @@ pub struct FocusModeUI {
     // focus_buf: Buffer,
     // next_buf: Buffer,
     effects: EffectManager<()>,
-    pending_removal: Option<(usize, Instant)>, // (task_index, removal_time)
+    pending_completion: Option<(usize, Instant)>, // (task_index, removal_time)
+    tx: UnboundedSender<AppAction>,
 }
 
 impl FocusModeUI {
+    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
+        Self {
+            tasks: Vec::new(),
+            list: FocusList::default(),
+            list_state: FocusListState::default(),
+            effects: EffectManager::default(),
+            pending_completion: None,
+            tx,
+        }
+    }
+
     // pub fn with_tasks(mut self, tasks: Vec<Arc<Task>>) -> Self {
     //     self.tasks = tasks;
     //     self
@@ -96,25 +109,34 @@ impl FocusModeUI {
         // self.task_list.tasks_loaded = true;
     }
 
-    pub fn schedule_removal(&mut self, delay_ms: u64) {
+    pub fn schedule_completion(&mut self, delay_ms: u64) {
         if let Some(idx) = self.list.focused_index() {
             let removal_time = Instant::now() + Duration::from_millis(delay_ms);
-            self.pending_removal = Some((idx, removal_time));
+            self.pending_completion = Some((idx, removal_time));
         }
     }
 
-    pub fn process_pending_removal(&mut self) {
-        if let Some((idx, removal_time)) = self.pending_removal {
+    pub fn process_pending_completion(&mut self) {
+        if let Some((idx, removal_time)) = self.pending_completion {
             if Instant::now() >= removal_time {
                 if idx < self.tasks.len() {
-                    self.tasks.remove(idx);
+                    let task = self.tasks.remove(idx);
+                    let project_id = task.project_id.clone();
+                    let task_id = task.get_id().clone();
+                    self.tx
+                        .send(AppAction::TaskAction(
+                            project_id,
+                            task_id,
+                            TaskAction::Complete,
+                        ))
+                        .unwrap_or(());
                     if self.tasks.is_empty() {
                         self.list.focus(None);
                     } else if idx >= self.tasks.len() {
                         self.list.focus(Some(self.tasks.len() - 1));
                     }
                 }
-                self.pending_removal = None;
+                self.pending_completion = None;
             }
         }
     }
@@ -263,7 +285,7 @@ impl FocusModeUI {
                 }
             }
             KeyCode::Enter if self.list.len() > 0 => {
-                self.schedule_removal(300);
+                self.schedule_completion(300);
                 if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
                     let duration = Duration::from_millis(300);
                     let timer =
@@ -396,7 +418,7 @@ impl FocusModeUI {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
-        self.process_pending_removal();
+        self.process_pending_completion();
         Clear.render(f.area(), f.buffer_mut());
         Block::default()
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))

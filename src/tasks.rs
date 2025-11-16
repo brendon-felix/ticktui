@@ -1,6 +1,15 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
-use ticks::{TickTick, projects::ProjectID, tasks::Task};
+use ticks::{
+    TickTick,
+    projects::ProjectID,
+    tasks::{Task, TaskID},
+};
+
+pub enum TaskAction {
+    Complete,
+    // Delete,
+}
 
 pub async fn fetch_all_tasks(client: &TickTick) -> Result<Vec<Task>> {
     let project_tasks = client
@@ -253,31 +262,31 @@ pub fn is_due_today(now: DateTime<Local>, task: &Task) -> bool {
 //         .map_err(|e| format!("Failed to edit task: {:?}", e))
 // }
 
-// pub async fn complete_task_with_client(
-//     client: &TickTick,
-//     project_id: &ProjectID,
-//     task_id: &TaskID,
-// ) -> Result<(), String> {
-//     // Get a fresh task instance from the API with proper client context
-//     match client.get_project_data(project_id).await {
-//         Ok(project_data) => {
-//             // Find the task in the project data
-//             let task_id_str = format!("{:?}", task_id);
-//             if let Some(mut task) = project_data.tasks.into_iter().find(|t| {
-//                 let t_id_str = format!("{:?}", t.get_id());
-//                 t_id_str == task_id_str
-//             }) {
-//                 match task.complete().await {
-//                     Ok(_) => Ok(()),
-//                     Err(e) => Err(format!("Failed to complete task: {:?}", e)),
-//                 }
-//             } else {
-//                 Err("Task not found in project".to_string())
-//             }
-//         }
-//         Err(e) => Err(format!("Failed to get project data: {:?}", e)),
-//     }
-// }
+pub async fn complete_task(
+    client: &TickTick,
+    project_id: &ProjectID,
+    task_id: &TaskID,
+) -> Result<(), String> {
+    // Get a fresh task instance from the API with proper client context
+    match client.get_project_data(project_id).await {
+        Ok(project_data) => {
+            // Find the task in the project data
+            let task_id_str = format!("{:?}", task_id);
+            if let Some(mut task) = project_data.tasks.into_iter().find(|t| {
+                let t_id_str = format!("{:?}", t.get_id());
+                t_id_str == task_id_str
+            }) {
+                match task.complete().await {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(format!("Failed to complete task: {:?}", e)),
+                }
+            } else {
+                Err("Task not found in project".to_string())
+            }
+        }
+        Err(e) => Err(format!("Failed to get project data: {:?}", e)),
+    }
+}
 
 // pub async fn delete_task(task: Task) -> Result<(), String> {
 //     match task.delete().await {

@@ -8,8 +8,10 @@ use ratatui::{
 use std::{sync::Arc, time::Instant};
 use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
 use ticks::tasks::Task;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
+    app::AppAction,
     tasks::{is_due_today, is_overdue},
     ui::{taskeditor::TaskEditor, tasklist::TaskList},
 };
@@ -24,9 +26,10 @@ pub struct NormalModeUI {
     task_editor: TaskEditor,
     active_pane: ActivePane,
     effects: EffectManager<()>,
+    _tx: UnboundedSender<AppAction>,
 }
 impl NormalModeUI {
-    pub fn new() -> Self {
+    pub fn new(_tx: UnboundedSender<AppAction>) -> Self {
         let mut task_list = TaskList::default();
         task_list.activate();
         let mut task_editor = TaskEditor::new();
@@ -41,6 +44,7 @@ impl NormalModeUI {
             task_editor,
             active_pane: ActivePane::TaskList,
             effects,
+            _tx,
         }
     }
 
