@@ -134,14 +134,14 @@ impl FocusModeUI {
                         AnimationType::TranslateFrom { x: 0, y: 10 },
                         AnimationType::ResizeFrom {
                             dir: AnimationDirection::Horizontal,
-                            amount: 20,
+                            amount: 10,
                         },
                     ];
                     let translate_grow = vec![
                         AnimationType::TranslateFrom { x: 0, y: 10 },
                         AnimationType::ResizeFrom {
                             dir: AnimationDirection::Horizontal,
-                            amount: -20,
+                            amount: -10,
                         },
                     ];
                     let translate_shrink = AnimationType::Composite(translate_shrink);
@@ -159,10 +159,6 @@ impl FocusModeUI {
                         Animation::new(translate.clone(), duration),
                         FocusListPosition::Next,
                     );
-                    // self.list_state.start_animation(
-                    //     Animation::new(translate.clone(), duration),
-                    //     FocusListPosition::NextNext,
-                    // );
                     if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Next) {
                         let fx = fx::dynamic_area(
                             area_ref,
@@ -206,14 +202,14 @@ impl FocusModeUI {
                         AnimationType::TranslateFrom { x: 0, y: -10 },
                         AnimationType::ResizeFrom {
                             dir: AnimationDirection::Horizontal,
-                            amount: 20,
+                            amount: 10,
                         },
                     ];
                     let translate_grow = vec![
                         AnimationType::TranslateFrom { x: 0, y: -10 },
                         AnimationType::ResizeFrom {
                             dir: AnimationDirection::Horizontal,
-                            amount: -20,
+                            amount: -10,
                         },
                     ];
                     let translate_shrink = AnimationType::Composite(translate_shrink);
@@ -267,12 +263,16 @@ impl FocusModeUI {
                 }
             }
             KeyCode::Enter if self.list.len() > 0 => {
-                self.schedule_removal(200);
+                self.schedule_removal(300);
                 if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
                     let duration = Duration::from_millis(195);
                     let timer =
                         EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut);
-                    let fx = fx::dynamic_area(area_ref, fx::explode(2.0, 2.0, timer));
+                    let c = Color::Rgb(25, 25, 25);
+                    let fx = fx::dynamic_area(
+                        area_ref,
+                        fx::parallel(&[fx::explode(2.0, 2.0, timer), fx::paint_bg(c, timer)]),
+                    );
                     self.effects.add_effect(fx);
                 }
                 if let Some(i) = self.list.focused_index() {
@@ -282,12 +282,12 @@ impl FocusModeUI {
                             AnimationType::TranslateFrom { x: 0, y: 10 },
                             AnimationType::ResizeFrom {
                                 dir: AnimationDirection::Horizontal,
-                                amount: -20,
+                                amount: -10,
                             },
                         ];
                         let translate_grow = AnimationType::Composite(translate_grow);
                         let duration = Duration::from_millis(200);
-                        let delay = Duration::from_millis(200);
+                        let delay = Duration::from_millis(300);
                         self.list_state.start_animation(
                             Animation::new(
                                 AnimationType::Delay(delay, Box::new(translate_grow)),
@@ -326,7 +326,7 @@ impl FocusModeUI {
                             AnimationType::TranslateFrom { x: 0, y: -10 },
                             AnimationType::ResizeFrom {
                                 dir: AnimationDirection::Horizontal,
-                                amount: -20,
+                                amount: -10,
                             },
                         ];
                         let translate_grow = AnimationType::Composite(translate_grow);

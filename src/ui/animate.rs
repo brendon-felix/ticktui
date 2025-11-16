@@ -159,14 +159,12 @@ impl AnimatedArea {
                         area.height = (self.initial_area.height as i32 + total_change) as u16;
                     }
                     AnimationDirection::Horizontal => {
-                        // area.width =
-                        //     (self.initial_area.width as i32 + total_change) as u16;
-                        area.x = (self.initial_area.x as i32 - total_change / 2) as u16;
-                        area.width = (self.initial_area.width as i32 + total_change) as u16;
+                        area.x = (self.initial_area.x as i32 - total_change) as u16;
+                        area.width = (self.initial_area.width as i32 + total_change * 2) as u16;
                     }
                     AnimationDirection::Vertical => {
-                        area.y = (self.initial_area.y as i32 - total_change / 2) as u16;
-                        area.height = (self.initial_area.height as i32 + total_change) as u16;
+                        area.y = (self.initial_area.y as i32 - total_change) as u16;
+                        area.height = (self.initial_area.height as i32 + total_change * 2) as u16;
                     }
                 }
             }
@@ -191,14 +189,12 @@ impl AnimatedArea {
                         area.height = (self.initial_area.height as i32 + total_change) as u16;
                     }
                     AnimationDirection::Horizontal => {
-                        // area.width =
-                        //     (self.initial_area.width as i32 + total_change) as u16;
-                        area.x = (self.initial_area.x as i32 - total_change / 2) as u16;
-                        area.width = (self.initial_area.width as i32 + total_change) as u16;
+                        area.x = (self.initial_area.x as i32 - total_change) as u16;
+                        area.width = (self.initial_area.width as i32 + total_change * 2) as u16;
                     }
                     AnimationDirection::Vertical => {
-                        area.y = (self.initial_area.y as i32 - total_change / 2) as u16;
-                        area.height = (self.initial_area.height as i32 + total_change) as u16;
+                        area.y = (self.initial_area.y as i32 - total_change) as u16;
+                        area.height = (self.initial_area.height as i32 + total_change * 2) as u16;
                     }
                 }
             }
