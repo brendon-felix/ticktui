@@ -26,11 +26,11 @@ pub struct NormalModeUI {
     task_editor: TaskEditor,
     active_pane: ActivePane,
     effects: EffectManager<()>,
-    _tx: UnboundedSender<AppAction>,
+    // tx: UnboundedSender<AppAction>,
 }
 impl NormalModeUI {
-    pub fn new(_tx: UnboundedSender<AppAction>) -> Self {
-        let mut task_list = TaskList::default();
+    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
+        let mut task_list = TaskList::new(vec![], tx.clone());
         task_list.activate();
         let mut task_editor = TaskEditor::new();
         task_editor.deactivate();
@@ -44,7 +44,7 @@ impl NormalModeUI {
             task_editor,
             active_pane: ActivePane::TaskList,
             effects,
-            _tx,
+            // tx,
         }
     }
 
@@ -61,10 +61,10 @@ impl NormalModeUI {
         }
     }
 
-    pub fn is_in_insert_mode(&self) -> bool {
+    pub fn allow_quit(&self) -> bool {
         match self.active_pane {
-            ActivePane::TaskList => false,
-            ActivePane::TaskEditor => self.task_editor.is_in_insert_mode(),
+            ActivePane::TaskList => true,
+            ActivePane::TaskEditor => !self.task_editor.is_in_insert_mode(),
         }
     }
 

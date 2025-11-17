@@ -10,9 +10,11 @@ use ratatui::{
 use std::{sync::Arc, time::Instant};
 use tachyonfx::EffectManager;
 use ticks::tasks::Task;
+use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
-    tasks::{is_due_today, is_overdue},
+    app::AppAction,
+    tasks::{TaskAction, is_due_today, is_overdue},
     ui::{
         multiselect::{MultiSelectList, MultiSelectListItem, MultiSelectListState},
         utils::format_date,
@@ -26,7 +28,6 @@ use crate::{
 //     Visual,
 // }
 
-#[derive(Default)]
 pub struct TaskList {
     tasks: Vec<Arc<Task>>,
     list_state: MultiSelectListState,
@@ -35,11 +36,12 @@ pub struct TaskList {
     pub tasks_loaded: bool,
     pub task_changed: bool,
     _effects: EffectManager<()>,
+    tx: UnboundedSender<AppAction>,
 }
 
 #[allow(dead_code)]
 impl TaskList {
-    pub fn new(tasks: Vec<Arc<Task>>) -> Self {
+    pub fn new(tasks: Vec<Arc<Task>>, tx: UnboundedSender<AppAction>) -> Self {
         let list_state = MultiSelectListState::default();
         let current_block = Some(
             Block::default()
@@ -56,6 +58,7 @@ impl TaskList {
             tasks_loaded: false,
             task_changed: true,
             _effects,
+            tx,
         }
     }
 
@@ -124,16 +127,31 @@ impl TaskList {
 
     pub fn remove_task(&mut self, index: usize) {
         if index < self.tasks.len() {
-            self.tasks.remove(index);
+            if let Some(task) = self.tasks.get(index) {
+                let project_id = task.project_id.clone();
+                let task_id = task.get_id().clone();
+                let task_action =
+                    AppAction::TaskAction(project_id.clone(), task_id.clone(), TaskAction::Delete);
+                let confirm_action = AppAction::Confirm(Box::new(AppAction::MultiAction(vec![
+                    task_action,
+                    AppAction::RefreshTasks,
+                ])));
+                let _ = self.tx.send(confirm_action);
+                if self.tasks.is_empty() {
+                    self.list_state.select(None);
+                } else if index >= self.tasks.len() {
+                    self.list_state.select(Some(self.tasks.len() - 1));
+                }
+            }
         }
     }
 
-    pub fn remove_range_inclusive(&mut self, range: (usize, usize)) {
-        let (start, end) = range;
-        if start < self.tasks.len() && end < self.tasks.len() && start <= end {
-            self.tasks.drain(start..=end);
-        }
-    }
+    // pub fn remove_range_inclusive(&mut self, range: (usize, usize)) {
+    //     let (start, end) = range;
+    //     if start < self.tasks.len() && end < self.tasks.len() && start <= end {
+    //         self.tasks.drain(start..=end);
+    //     }
+    // }
 
     pub fn remove_selected_tasks(&mut self) {
         if let Some(curr) = self.list_state.selected() {
@@ -143,7 +161,18 @@ impl TaskList {
                 } else {
                     (curr, start)
                 };
-                self.remove_range_inclusive((s, e));
+                // self.remove_range_inclusive((s, e));
+                let task_actions = self.tasks[s..=e].iter().map(|task| {
+                    let project_id = task.project_id.clone();
+                    let task_id = task.get_id().clone();
+                    AppAction::TaskAction(project_id, task_id, TaskAction::Delete)
+                });
+                let confirmation_action = AppAction::Confirm(Box::new(AppAction::MultiAction(
+                    task_actions
+                        .chain(std::iter::once(AppAction::RefreshTasks))
+                        .collect(),
+                )));
+                let _ = self.tx.send(confirmation_action);
                 // self.list_state.select_next();
                 self.list_state.select(Some(s));
                 self.list_state.end_visual_selection();

@@ -142,8 +142,8 @@ impl FocusModeUI {
         }
     }
 
-    pub fn is_in_insert_mode(&self) -> bool {
-        false
+    pub fn allow_quit(&self) -> bool {
+        true
     }
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {

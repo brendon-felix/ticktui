@@ -1,4 +1,4 @@
-use anyhow::{Error, Result};
+use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use std::{
     sync::{Arc, Mutex},
@@ -17,15 +17,19 @@ use crate::{
     ui::AppUI,
 };
 
+#[derive(Debug, Clone)]
 pub enum AppAction {
     Tick,
     Render(Instant),
     Resize(u16, u16),
     Quit,
-    Error(Error),
+    Error(String),
     RefreshTasks,
     UpdateCache,
     TaskAction(ProjectID, TaskID, TaskAction),
+    Confirm(Box<AppAction>),
+    ClosePopup,
+    MultiAction(Vec<AppAction>),
 }
 
 pub struct App {
@@ -98,7 +102,7 @@ impl App {
                     let _ = tx.send(AppAction::UpdateCache);
                 }
                 Err(e) => {
-                    let _ = tx.send(AppAction::Error(e));
+                    let _ = tx.send(AppAction::Error(e.to_string()));
                 }
             }
         });
@@ -138,7 +142,7 @@ impl App {
     ) -> Result<()> {
         match key_event.code {
             KeyCode::Char('q') => {
-                if self.ui.is_in_insert_mode() {
+                if !self.ui.allow_quit() {
                     self.ui.handle_key_event(key_event);
                 } else {
                     tx.send(AppAction::Quit)?;
@@ -179,6 +183,13 @@ impl App {
                 self.execute_task_action(p_id, t_id, action)
             }
             AppAction::Error(_e) => {}
+            AppAction::Confirm(action) => self.ui.confirm(*action),
+            AppAction::ClosePopup => self.ui.close_popup(),
+            AppAction::MultiAction(actions) => {
+                for act in actions {
+                    self.execute_action(act, tx)?;
+                }
+            }
         }
         Ok(())
     }
@@ -190,12 +201,9 @@ impl App {
                 TaskAction::Complete => {
                     let _ = tasks::complete_task(&client, &project_id, &task_id).await;
                 }
-                // TaskAction::Uncomplete => {
-                //     let _ = client.uncomplete_task(&project_id, &task_id).await;
-                // }
-                // TaskAction::Delete => {
-                //     let _ = tasks::delete_task(&project_id, &task_id).await;
-                // }
+                TaskAction::Delete => {
+                    let _ = tasks::delete_task(&client, &project_id, &task_id).await;
+                }
             }
         });
     }

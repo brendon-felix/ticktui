@@ -6,9 +6,10 @@ use ticks::{
     tasks::{Task, TaskID},
 };
 
+#[derive(Debug, Clone)]
 pub enum TaskAction {
     Complete,
-    // Delete,
+    Delete,
 }
 
 pub async fn fetch_all_tasks(client: &TickTick) -> Result<Vec<Task>> {
@@ -294,6 +295,32 @@ pub async fn complete_task(
 //         Err(e) => Err(format!("Failed to delete task: {:?}", e)),
 //     }
 // }
+
+pub async fn delete_task(
+    client: &TickTick,
+    project_id: &ProjectID,
+    task_id: &TaskID,
+) -> Result<(), String> {
+    // Get a fresh task instance from the API with proper client context
+    match client.get_project_data(project_id).await {
+        Ok(project_data) => {
+            // Find the task in the project data
+            let task_id_str = format!("{:?}", task_id);
+            if let Some(task) = project_data.tasks.into_iter().find(|t| {
+                let t_id_str = format!("{:?}", t.get_id());
+                t_id_str == task_id_str
+            }) {
+                match task.delete().await {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(format!("Failed to delete task: {:?}", e)),
+                }
+            } else {
+                Err("Task not found in project".to_string())
+            }
+        }
+        Err(e) => Err(format!("Failed to get project data: {:?}", e)),
+    }
+}
 
 pub fn sort_tasks(tasks: &mut Vec<Task>) {
     tasks.sort_by(|a, b| {
