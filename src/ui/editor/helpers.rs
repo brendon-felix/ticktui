@@ -1,6 +1,6 @@
 use ratatui::{
     style::{Color, Modifier, Style},
-    widgets::{Block, BorderType, Borders},
+    widgets::{Block, Borders},
 };
 use tui_textarea::{CursorMove, Input, Key};
 
@@ -167,7 +167,7 @@ pub fn create_block<'a>(
     let mut block = Block::default()
         .style(style)
         .borders(borders)
-        .border_set(BorderType::Rounded.to_border_set())
+        // .border_set(BorderType::Rounded.to_border_set())
         .border_style(border_style);
 
     if let Some(t) = title {

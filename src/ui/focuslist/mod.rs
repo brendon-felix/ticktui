@@ -4,7 +4,7 @@ pub mod state;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::Style,
+    style::{Color, Style},
     text::Text,
     widgets::{Block, StatefulWidget, Widget},
 };
@@ -20,6 +20,7 @@ use crate::ui::focuslist::{
 pub struct FocusListItem<'a> {
     content: Text<'a>,
     style: Style,
+    border_color: Option<Color>,
 }
 
 impl<'a> FocusListItem<'a> {
@@ -30,7 +31,13 @@ impl<'a> FocusListItem<'a> {
         Self {
             content: content.into(),
             style: Style::default(),
+            border_color: None,
         }
+    }
+
+    pub fn with_border_color(mut self, color: Color) -> Self {
+        self.border_color = Some(color);
+        self
     }
 }
 

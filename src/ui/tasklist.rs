@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, BorderType, Paragraph},
+    widgets::{Block, Paragraph},
 };
 use std::{sync::Arc, time::Instant};
 use tachyonfx::EffectManager;
@@ -46,7 +46,7 @@ impl TaskList {
         let current_block = Some(
             Block::default()
                 .title("Tasks")
-                .border_set(BorderType::Rounded.to_border_set())
+                // .border_set(BorderType::Rounded.to_border_set())
                 .borders(ratatui::widgets::Borders::ALL),
         );
         let _effects: EffectManager<()> = EffectManager::default();
@@ -71,7 +71,7 @@ impl TaskList {
         self.current_block = Some(
             Block::default()
                 .title("Tasks")
-                .border_set(BorderType::Rounded.to_border_set())
+                // .border_set(BorderType::Rounded.to_border_set())
                 .borders(ratatui::widgets::Borders::ALL),
         );
         self.style = Style::default();
@@ -82,7 +82,7 @@ impl TaskList {
             Block::default()
                 .title("Tasks")
                 .borders(ratatui::widgets::Borders::ALL)
-                .border_set(BorderType::Rounded.to_border_set())
+                // .border_set(BorderType::Rounded.to_border_set())
                 .style(Style::default().add_modifier(Modifier::DIM)),
         );
         self.style = Style::default().add_modifier(Modifier::DIM);
@@ -243,7 +243,7 @@ impl TaskList {
                 .block(
                     Block::default()
                         .title("No Tasks")
-                        .border_set(BorderType::Rounded.to_border_set())
+                        // .border_set(BorderType::Rounded.to_border_set())
                         .borders(ratatui::widgets::Borders::ALL),
                 );
             if let Some(block) = self.current_block.clone() {

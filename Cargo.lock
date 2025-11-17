@@ -2073,7 +2073,6 @@ dependencies = [
 [[package]]
 name = "ticks"
 version = "1.0.1"
-source = "git+https://github.com/brendon-felix/ticks.git#36959fff96419635dd4fa4f6b8ec4d4088089a8e"
 dependencies = [
  "chrono",
  "oauth2",

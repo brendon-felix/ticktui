@@ -69,6 +69,7 @@ impl NormalModeUI {
     }
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {
+        let task_before = self.task_list.get_current_task();
         match self.active_pane {
             ActivePane::TaskList => match key_event.code {
                 KeyCode::Enter => {
@@ -91,11 +92,14 @@ impl NormalModeUI {
                 _ => self.task_editor.handle_key_event(key_event),
             },
         }
-        if self.task_list.task_changed {
-            if let Some(selected_task) = self.task_list.get_current_task() {
-                self.task_editor.load_task(&selected_task);
+        if let Some(task_after) = self.task_list.get_current_task() {
+            if let Some(task_before) = task_before {
+                if task_before.get_id() != task_after.get_id() {
+                    self.task_editor.load_task(&task_after);
+                }
+            } else {
+                self.task_editor.load_task(&task_after);
             }
-            self.task_list.task_changed = false;
         }
     }
 

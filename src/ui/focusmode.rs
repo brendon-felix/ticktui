@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tachyonfx::{EffectManager, EffectTimer, fx};
-use ticks::tasks::Task;
+use ticks::tasks::{Task, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -461,7 +461,14 @@ fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
     } else {
         Line::from("")
     };
-    FocusListItem::new(vec![line1, line2, line3])
+    let mut item = FocusListItem::new(vec![line1, line2, line3]);
+    match task.priority {
+        TaskPriority::High => item = item.with_border_color(Color::Red),
+        TaskPriority::Medium => item = item.with_border_color(Color::Yellow),
+        TaskPriority::Low => item = item.with_border_color(Color::Blue),
+        TaskPriority::None => {}
+    }
+    item
 }
 
 fn render_no_tasks(f: &mut Frame, area: Rect) {

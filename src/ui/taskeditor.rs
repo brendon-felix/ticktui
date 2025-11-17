@@ -4,9 +4,12 @@ use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
-    widgets::{Block, BorderType, Borders},
+    widgets::{Block, Borders},
 };
-use tachyonfx::{EffectManager, EffectTimer, Interpolation, fx};
+use tachyonfx::{
+    EffectManager, EffectTimer, Interpolation,
+    fx::{self},
+};
 use ticks::tasks::Task;
 use tui_textarea::Input;
 
@@ -114,18 +117,11 @@ impl TaskEditor {
             .get_sub_areas()
             .iter()
             .map(|area| {
-                let inner = Block::default()
-                    .border_set(BorderType::Rounded.to_border_set())
-                    .borders(Borders::ALL)
-                    .inner(area.clone());
-                // fx::sweep_in(
-                //     Motion::LeftToRight,
-                //     5,
-                //     0,
-                //     Color::Rgb(25, 25, 25),
-                //     EffectTimer::from_ms(500, Interpolation::Linear),
-                // )
-                fx::coalesce(EffectTimer::from_ms(200, Interpolation::Linear)).with_area(inner)
+                let inner = Block::default().borders(Borders::ALL).inner(area.clone());
+                // let bg = Color::Rgb(25, 25, 25);
+                let timer = EffectTimer::from_ms(200, Interpolation::Linear);
+                fx::coalesce(timer).with_area(inner)
+                // fx::sweep_in(Motion::RightToLeft, 5, 0, bg, timer).with_area(inner)
             })
             .for_each(|fx| self.effects.add_effect(fx));
     }
