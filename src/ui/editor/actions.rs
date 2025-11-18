@@ -29,6 +29,8 @@ pub enum EditorAction {
     // Command(EditorCommand),
     Pending(EditorPendingAction),
     MultiAction(Vec<EditorAction>),
+    // App
+    Submit,
 }
 
 pub trait EditorActions {

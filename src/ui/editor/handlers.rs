@@ -7,16 +7,16 @@ use crate::ui::editor::{
 
 use super::{EditorMode, TextObject, TextObjectModifier, VisualMode};
 
-pub fn handle_input(input: Input, mode: EditorMode) -> Option<EditorAction> {
+pub fn handle_input(input: Input, mode: EditorMode, is_single_line: bool) -> Option<EditorAction> {
     match mode {
-        EditorMode::Normal => handle_normal_mode_input(input),
-        EditorMode::Insert => handle_insert_mode_input(input),
-        EditorMode::Visual(vmode) => handle_visual_mode_input(input, vmode),
-        EditorMode::Replace => handle_replace_mode_input(input),
+        EditorMode::Normal => handle_normal_mode_input(input, is_single_line),
+        EditorMode::Insert => handle_insert_mode_input(input, is_single_line),
+        EditorMode::Visual(vmode) => handle_visual_mode_input(input, vmode, is_single_line),
+        EditorMode::Replace => handle_replace_mode_input(input, is_single_line),
     }
 }
 
-fn handle_normal_mode_input(input: Input) -> Option<EditorAction> {
+fn handle_normal_mode_input(input: Input, is_single_line: bool) -> Option<EditorAction> {
     match input {
         // Enter insert mode
         Input {
@@ -57,6 +57,16 @@ fn handle_normal_mode_input(input: Input) -> Option<EditorAction> {
             ctrl: false,
             alt: false,
             shift: false,
+        } if is_single_line => Some(EditorAction::MultiAction(vec![
+            EditorAction::MoveCursor(CursorMove::Down),
+            EditorAction::MoveCursor(CursorMove::End),
+            EditorAction::SetMode(EditorMode::Insert),
+        ])),
+        Input {
+            key: Key::Char('o'),
+            ctrl: false,
+            alt: false,
+            shift: false,
         } => Some(EditorAction::MultiAction(vec![
             EditorAction::MoveCursor(CursorMove::End),
             EditorAction::Insert(TextObject::Line),
@@ -77,11 +87,19 @@ fn handle_normal_mode_input(input: Input) -> Option<EditorAction> {
             key: Key::Enter,
             ctrl: false,
             alt: false,
-            shift: false,
+            ..
         } => Some(EditorAction::MultiAction(vec![
             EditorAction::MoveCursor(CursorMove::Down),
             EditorAction::MoveCursor(CursorMove::Head),
         ])),
+        Input {
+            key: Key::Enter, ..
+        } if is_single_line => Some(EditorAction::Submit),
+        Input {
+            key: Key::Enter,
+            ctrl: true,
+            ..
+        } => Some(EditorAction::Submit),
 
         // Normal mode editing commands
         Input {
@@ -393,7 +411,7 @@ pub fn handle_pending_action_input(input: Input, pending: EditorPendingAction) -
     }
 }
 
-pub fn handle_insert_mode_input(input: Input) -> Option<EditorAction> {
+pub fn handle_insert_mode_input(input: Input, is_single_line: bool) -> Option<EditorAction> {
     match input {
         Input { key: Key::Esc, .. }
         | Input {
@@ -404,11 +422,23 @@ pub fn handle_insert_mode_input(input: Input) -> Option<EditorAction> {
             EditorAction::MoveCursor(CursorMove::Left),
             EditorAction::SetMode(EditorMode::Normal),
         ])),
+        Input {
+            key: Key::Enter, ..
+        } if is_single_line => Some(EditorAction::Submit),
+        Input {
+            key: Key::Enter,
+            ctrl: true,
+            ..
+        } => Some(EditorAction::Submit),
         input => Some(EditorAction::ApplyInput(input)),
     }
 }
 
-pub fn handle_visual_mode_input(input: Input, mode: VisualMode) -> Option<EditorAction> {
+pub fn handle_visual_mode_input(
+    input: Input,
+    mode: VisualMode,
+    _is_single_line: bool,
+) -> Option<EditorAction> {
     match mode {
         VisualMode::Char => match input {
             Input { key: Key::Esc, .. } => Some(EditorAction::SetMode(EditorMode::Normal)),
@@ -481,7 +511,7 @@ pub fn handle_visual_mode_input(input: Input, mode: VisualMode) -> Option<Editor
     }
 }
 
-pub fn handle_replace_mode_input(input: Input) -> Option<EditorAction> {
+pub fn handle_replace_mode_input(input: Input, _is_single_line: bool) -> Option<EditorAction> {
     match input {
         Input { key: Key::Esc, .. }
         | Input {

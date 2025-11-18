@@ -209,6 +209,10 @@ impl Editor {
         let _ = self.textarea.insert_str(s);
     }
 
+    pub fn is_single_line(&self) -> bool {
+        self.single_line
+    }
+
     pub fn get_title(&self) -> Option<String> {
         self.title.clone()
     }
@@ -241,6 +245,16 @@ impl Editor {
     pub fn is_cursor_at_line_start(&self) -> bool {
         let (_row, col) = self.textarea.cursor();
         col == 0
+    }
+
+    pub fn is_cursor_on_first_line(&self) -> bool {
+        let (row, _col) = self.textarea.cursor();
+        row == 0
+    }
+
+    pub fn is_cursor_on_last_line(&self) -> bool {
+        let (row, _col) = self.textarea.cursor();
+        row + 1 == self.textarea.lines().len()
     }
 }
 
@@ -454,6 +468,9 @@ impl EditorActions for Editor {
                 for act in actions {
                     self.execute_action(act);
                 }
+            }
+            EditorAction::Submit => {
+                // handled externally
             }
         }
 

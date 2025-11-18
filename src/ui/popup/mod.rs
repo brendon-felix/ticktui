@@ -1,0 +1,15 @@
+pub mod batch;
+pub mod confirm;
+pub mod newtask;
+
+use std::time::Instant;
+
+use crossterm::event::{KeyEvent, MouseEvent};
+use ratatui::{Frame, layout::Rect};
+
+pub trait Popup {
+    fn handle_key_event(&mut self, key_event: KeyEvent);
+    fn handle_mouse_event(&mut self, mouse_event: MouseEvent);
+    fn allow_quit(&self) -> bool;
+    fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant);
+}

@@ -13,7 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     app::AppAction,
     tasks::{is_due_today, is_overdue},
-    ui::{taskeditor::TaskEditor, tasklist::TaskList},
+    ui::{taskeditor::TaskEditor, tasklist::TaskList, utils::centered_area},
 };
 
 enum ActivePane {
@@ -112,22 +112,8 @@ impl NormalModeUI {
         Block::default()
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))
             .render(f.area(), f.buffer_mut());
-        let main_area = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Fill(1),
-                Constraint::Max(40),
-                Constraint::Fill(1),
-            ])
-            .split(area)[1];
-        let main_area = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(vec![
-                Constraint::Fill(1),
-                Constraint::Max(120),
-                Constraint::Fill(1),
-            ])
-            .split(main_area)[1];
+
+        let main_area = centered_area(area, 40, 120);
 
         let chunks = Layout::new(
             Direction::Horizontal,

@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
-use ratatui::{Frame, layout::Rect};
+use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
 
 mod animate;
 mod composite;
@@ -21,7 +21,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    ui::popup::{ConfirmationPopup, Popup},
+    ui::popup::{Popup, confirm::ConfirmationPopup, newtask::NewTaskPopup},
 };
 
 enum AppUIMode {
@@ -49,7 +49,16 @@ impl AppUI {
     }
 
     pub fn confirm(&mut self, pending_action: AppAction) {
-        let popup = ConfirmationPopup::new(pending_action, self.tx.clone());
+        let popup = ConfirmationPopup::new(
+            Paragraph::new(Text::from("Are you sure?")).centered(),
+            pending_action,
+            self.tx.clone(),
+        );
+        self.popup = Some(Box::new(popup));
+    }
+
+    pub fn start_new_task(&mut self) {
+        let popup = NewTaskPopup::new(self.tx.clone());
         self.popup = Some(Box::new(popup));
     }
 
@@ -79,6 +88,7 @@ impl AppUI {
             None => match key_event.code {
                 KeyCode::F(1) => self.mode = AppUIMode::Focus,
                 KeyCode::F(2) => self.mode = AppUIMode::Normal,
+                KeyCode::Char('n') if self.allow_quit() => self.start_new_task(),
                 _ => match self.mode {
                     AppUIMode::Focus => self.focus_ui.handle_key_event(key_event),
                     AppUIMode::Normal => self.normal_ui.handle_key_event(key_event),

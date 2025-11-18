@@ -16,6 +16,9 @@ use crate::ui::focuslist::{
     state::FocusListPosition,
 };
 
+const FOCUSED_WIDTH: u16 = 70;
+const NEXT_PREV_WIDTH: u16 = 50;
+
 #[derive(Clone)]
 pub struct FocusListItem<'a> {
     content: Text<'a>,
@@ -210,7 +213,7 @@ impl<'a> StatefulWidget for &FocusList<'a> {
                     let area = if let Some(area) = state.get_area(FocusListPosition::PrevPrev) {
                         area
                     } else {
-                        let area = constrained_centered_area(*rect, 50);
+                        let area = constrained_centered_area(*rect, NEXT_PREV_WIDTH);
                         state.set_area(area, FocusListPosition::PrevPrev);
                         area
                     };
@@ -225,7 +228,7 @@ impl<'a> StatefulWidget for &FocusList<'a> {
                     let area = if let Some(area) = state.get_area(FocusListPosition::Prev) {
                         area
                     } else {
-                        let area = constrained_centered_area(*rect, 50);
+                        let area = constrained_centered_area(*rect, NEXT_PREV_WIDTH);
                         state.set_area(area, FocusListPosition::Prev);
                         area
                     };
@@ -238,7 +241,7 @@ impl<'a> StatefulWidget for &FocusList<'a> {
                     let area = if let Some(area) = state.get_area(FocusListPosition::Focused) {
                         area
                     } else {
-                        let area = constrained_centered_area(*rect, 70);
+                        let area = constrained_centered_area(*rect, FOCUSED_WIDTH);
                         state.set_area(area, FocusListPosition::Focused);
                         area
                     };
@@ -251,7 +254,7 @@ impl<'a> StatefulWidget for &FocusList<'a> {
                     let area = if let Some(area) = state.get_area(FocusListPosition::NextNext) {
                         area
                     } else {
-                        let area = constrained_centered_area(*rect, 50);
+                        let area = constrained_centered_area(*rect, NEXT_PREV_WIDTH);
                         state.set_area(area, FocusListPosition::NextNext);
                         area
                     };
@@ -266,7 +269,7 @@ impl<'a> StatefulWidget for &FocusList<'a> {
                     let area = if let Some(area) = state.get_area(FocusListPosition::Next) {
                         area
                     } else {
-                        let area = constrained_centered_area(*rect, 50);
+                        let area = constrained_centered_area(*rect, NEXT_PREV_WIDTH);
                         state.set_area(area, FocusListPosition::Next);
                         area
                     };

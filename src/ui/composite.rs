@@ -66,10 +66,11 @@ pub struct CompositeEditor {
 impl CompositeEditor {
     pub fn new(editors: Vec<Editor>) -> Self {
         let active_index = if editors.is_empty() { None } else { Some(0) };
+        let n_editors = editors.len();
         let mut composite = Self {
             editors,
             active_index,
-            constraints: vec![],
+            constraints: vec![Constraint::Fill(1); n_editors],
             // last_area_pos: None,
         };
         composite.set_active_editor(active_index);
@@ -81,14 +82,46 @@ impl CompositeEditor {
         self
     }
 
+    pub fn set_mode(&mut self, mode: EditorMode) {
+        self.execute_action(EditorAction::SetMode(mode));
+    }
+
     pub fn set_active_editor(&mut self, index: Option<usize>) {
         self.active_index = index;
         self.set_style_active();
     }
 
-    pub fn get_active_editor(&mut self) -> Option<&mut Editor> {
+    pub fn set_active_editor_previous(&mut self) {
+        if let Some(current_index) = self.active_index {
+            if current_index > 0 {
+                self.set_active_editor(Some(current_index - 1));
+            }
+        }
+    }
+
+    pub fn set_active_editor_next(&mut self) {
+        if let Some(current_index) = self.active_index {
+            if current_index + 1 < self.editors.len() {
+                self.set_active_editor(Some(current_index + 1));
+            }
+        }
+    }
+
+    pub fn set_active_editor_first(&mut self) {
+        if !self.editors.is_empty() {
+            self.set_active_editor(Some(0));
+        }
+    }
+
+    pub fn set_active_editor_last(&mut self) {
+        if !self.editors.is_empty() {
+            self.set_active_editor(Some(self.editors.len() - 1));
+        }
+    }
+
+    pub fn get_active_editor(&mut self) -> Option<(&mut Editor, usize)> {
         self.active_index
-            .and_then(|index| self.editors.get_mut(index))
+            .and_then(|index| self.editors.get_mut(index).map(|editor| (editor, index)))
     }
 
     pub fn get_mode(&self) -> Option<EditorMode> {
@@ -110,11 +143,27 @@ impl CompositeEditor {
     }
 
     pub fn is_cursor_at_line_start(&mut self) -> bool {
-        if let Some(editor) = self.get_active_editor() {
+        if let Some((editor, _)) = self.get_active_editor() {
             editor.is_cursor_at_line_start()
         } else {
             false
         }
+    }
+
+    pub fn is_cursor_at_line_end(&mut self) -> bool {
+        if let Some((editor, _)) = self.get_active_editor() {
+            editor.is_cursor_at_line_end()
+        } else {
+            false
+        }
+    }
+
+    pub fn is_first_editor_active(&self) -> bool {
+        self.active_index == Some(0)
+    }
+
+    pub fn is_last_editor_active(&self) -> bool {
+        self.active_index == Some(self.editors.len().saturating_sub(1))
     }
 
     pub fn set_style_active(&mut self) {
@@ -145,59 +194,52 @@ impl CompositeEditor {
 
 impl EditorActions for CompositeEditor {
     fn execute_action(&mut self, action: EditorAction) {
-        if let Some(active_index) = self.active_index {
-            let num_editors = self.editors.len();
-            let mut cursor_movement = None;
-            if let Some(editor) = self.get_active_editor() {
-                match action {
-                    EditorAction::MoveCursor(CursorMove::Up) => match editor.get_cursor_pos() {
-                        (row, _col)
-                            if row == 0
-                                && active_index > 0
-                                && editor.get_mode() == EditorMode::Normal =>
-                        {
-                            cursor_movement =
-                                Some((editor.get_desired_column(), CursorMove::Bottom));
-                            self.set_active_editor(Some(active_index - 1));
-                        }
-                        _ => editor.execute_action(action),
-                    },
-                    EditorAction::MoveCursor(CursorMove::Down) => match editor.get_cursor_pos() {
-                        (row, _col)
-                            if row >= editor.get_lines().len().saturating_sub(1)
-                                && active_index + 1 < num_editors
-                                && editor.get_mode() == EditorMode::Normal =>
-                        {
-                            cursor_movement = Some((editor.get_desired_column(), CursorMove::Top));
-                            self.set_active_editor(Some(active_index + 1));
-                        }
-                        _ => editor.execute_action(action),
-                    },
-                    EditorAction::MoveCursor(CursorMove::Top)
-                        if editor.get_mode() == EditorMode::Normal =>
+        let num_editors = self.editors.len();
+        if let Some((editor, idx)) = self.get_active_editor() {
+            let desired_column = editor.get_desired_column();
+            let mode = editor.get_mode();
+            if mode == EditorMode::Normal || mode == EditorMode::Insert {
+                let cursor_movement = match action {
+                    EditorAction::MoveCursor(CursorMove::Up)
+                        if idx > 0 && editor.is_cursor_on_first_line() =>
                     {
-                        cursor_movement = Some((editor.get_desired_column(), CursorMove::Top));
-                        self.set_active_editor(Some(0));
+                        self.set_active_editor_previous();
+                        Some(CursorMove::Bottom) // Move to bottom of editor above
                     }
-                    EditorAction::MoveCursor(CursorMove::Bottom)
-                        if editor.get_mode() == EditorMode::Normal =>
+                    EditorAction::MoveCursor(CursorMove::Down)
+                        if idx + 1 < num_editors && editor.is_cursor_on_last_line() =>
                     {
-                        cursor_movement = Some((editor.get_desired_column(), CursorMove::Bottom));
-                        self.set_active_editor(Some(num_editors - 1));
+                        self.set_active_editor_next();
+                        Some(CursorMove::Top) // Move to top of editor below
+                    }
+                    EditorAction::MoveCursor(CursorMove::Top) if idx > 0 => {
+                        self.set_active_editor_first();
+                        Some(CursorMove::Top) // Move to top of topmost editor
+                    }
+                    EditorAction::MoveCursor(CursorMove::Bottom) if idx + 1 < num_editors => {
+                        self.set_active_editor_last();
+                        Some(CursorMove::Bottom) // Move to bottom of bottommost editor
                     }
                     EditorAction::MultiAction(actions) => {
                         for act in actions {
                             self.execute_action(act);
                         }
+                        None
                     }
-                    _ => editor.execute_action(action),
+                    _ => {
+                        editor.execute_action(action);
+                        None
+                    }
+                };
+                if let Some(movement) = cursor_movement {
+                    if let Some((editor, _)) = self.get_active_editor() {
+                        editor.set_desired_column(desired_column);
+                        editor.execute_action(EditorAction::SetMode(mode));
+                        editor.execute_action(EditorAction::MoveCursor(movement));
+                    }
                 }
-            };
-            if let Some((col, movement)) = cursor_movement {
-                if let Some(editor) = self.get_active_editor() {
-                    editor.set_desired_column(col);
-                    editor.execute_action(EditorAction::MoveCursor(movement));
-                }
+            } else {
+                editor.execute_action(action);
             }
         }
     }

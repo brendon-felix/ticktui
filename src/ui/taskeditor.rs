@@ -18,7 +18,7 @@ use crate::ui::{
     editor::{
         Editor, EditorMode,
         actions::{EditorAction, EditorActions},
-        handlers::{handle_input, handle_pending_action_input},
+        handlers,
     },
 };
 
@@ -62,6 +62,11 @@ impl TaskEditor {
             editor_state,
             effects,
         }
+    }
+
+    pub fn with_initial_mode(mut self, mode: EditorMode) -> Self {
+        self.editor.set_mode(mode);
+        self
     }
 
     pub fn deactivate(&mut self) {
@@ -141,7 +146,7 @@ impl TaskEditor {
         let input: Input = key_event.into();
         if let Some(mode) = self.editor.get_mode() {
             let action_opt = if let Some(pending_action) = self.editor.get_pending_action() {
-                match handle_pending_action_input(input, pending_action) {
+                match handlers::handle_pending_action_input(input, pending_action) {
                     Some(action) => Some(action),
                     None => {
                         self.editor.set_pending_action(None);
@@ -149,14 +154,38 @@ impl TaskEditor {
                     }
                 }
             } else {
-                handle_input(input, mode)
+                let is_single_line = self
+                    .editor
+                    .get_active_editor()
+                    .map(|(e, _)| e.is_single_line())
+                    .unwrap_or(false);
+
+                // match input {
+                //     Input {
+                //         key: Key::Enter, ..
+                //     } if self.is_in_insert_mode() && is_single_line => {
+                //         self.editor.set_active_editor_next();
+                //     }
+                //     _ => handle_input(input, mode, is_single_line),
+                // }
+                handlers::handle_input(input, mode, is_single_line)
             };
             match action_opt {
                 Some(action) => match action {
-                    EditorAction::ApplyInput(_) => self.editor.execute_action(action),
+                    EditorAction::Submit => self.submit_field(),
                     _ => self.editor.execute_action(action),
                 },
                 None => {}
+            }
+        }
+    }
+
+    pub fn submit_field(&mut self) {
+        let mode_before = self.editor.get_mode();
+        if !self.editor.is_last_editor_active() {
+            self.editor.set_active_editor_next();
+            if let Some(mode) = mode_before {
+                self.editor.set_mode(mode);
             }
         }
     }
