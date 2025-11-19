@@ -96,6 +96,14 @@ impl TaskList {
         self.style = Style::default().add_modifier(Modifier::DIM);
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.shown_tasks.is_empty()
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.list_state.select(None);
+    }
+
     pub fn set_all_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
         self.all_tasks = tasks;
     }

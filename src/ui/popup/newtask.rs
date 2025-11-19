@@ -104,13 +104,13 @@ impl Popup for NewTaskPopup {
             .centered();
         f.render_widget(p, areas[0]);
 
-        let content = Layout::new(
-            Direction::Horizontal,
-            [Constraint::Fill(3), Constraint::Fill(1)],
-        )
-        .split(areas[1]);
+        // let content = Layout::new(
+        //     Direction::Horizontal,
+        //     [Constraint::Fill(3), Constraint::Fill(1)],
+        // )
+        // .split(areas[1]);
 
-        self.editor.draw(f, content[0], last_frame);
+        self.editor.draw(f, areas[1], last_frame);
 
         // f.render_widget(&self.content, areas[0]);
         // f.render_widget(self.help_text(), areas[1]);

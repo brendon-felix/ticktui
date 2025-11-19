@@ -360,11 +360,27 @@ impl MultiSelectList<'_> {
     // }
 
     pub fn calculate_effect_area(&self, area: Rect) -> Option<Rect> {
-        if self.items.is_empty() {
+        let list_area = if let Some(block) = self.block.as_ref() {
+            block.inner(area)
+        } else {
+            area
+        };
+        if list_area.is_empty() {
             return None;
         }
-        let height = self.items.len() as u16 * ITEM_HEIGHT;
-        Rect::new(area.x, area.y, area.width, height).into()
+
+        let (first_visible_index, last_visible_index) =
+            self.get_items_bounds(None, 0, list_area.height as usize);
+
+        let height = (last_visible_index - first_visible_index + 1) as u16 * ITEM_HEIGHT;
+        let height = height.min(list_area.height + 1);
+
+        Some(Rect {
+            x: list_area.x,
+            y: list_area.y,
+            width: list_area.width,
+            height,
+        })
     }
 
     fn apply_scroll_padding_to_selected_index(

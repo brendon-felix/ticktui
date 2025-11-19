@@ -25,7 +25,7 @@ pub enum View {
 }
 
 impl View {
-    pub fn to_string(&self) -> String {
+    pub fn get_name(&self) -> String {
         let s = match self {
             View::Today => "Today",
             View::Tomorrow => "Tomorrow",
@@ -155,11 +155,14 @@ impl ViewList {
             .iter()
             .map(|view| create_list_item(view))
             .collect();
-        let mut list = List::new(items).style(self.style).highlight_style(
-            Style::new()
-                .bg(Color::Rgb(30, 30, 30))
-                .add_modifier(Modifier::BOLD),
-        );
+        let mut list = List::new(items)
+            .style(self.style)
+            .highlight_symbol(" ")
+            .highlight_style(
+                Style::new()
+                    .bg(Color::Rgb(50, 50, 50))
+                    .add_modifier(Modifier::BOLD),
+            );
         if let Some(block) = self.current_block.clone() {
             list = list.block(block);
         }
@@ -169,7 +172,7 @@ impl ViewList {
 
 fn create_list_item(view: &View) -> ListItem<'static> {
     let line1 = Line::from("");
-    let line2 = Line::from(view.to_string());
+    let line2 = Line::from(view.get_name()).centered();
     let line3 = Line::from("");
     ListItem::new(vec![line1, line2, line3])
 }

@@ -117,18 +117,16 @@ impl NormalModeUI {
                         self.active_pane = ActivePane::TaskList;
                         self.view_list.deactivate();
                         self.task_list.activate();
+                        if let Some(selected_task) = self.task_list.get_current_task() {
+                            self.task_editor.load_task(&selected_task);
+                        }
                     }
                     _ => self.view_list.handle_key_event(key_event),
                 }
                 if self.view_list.view_changed {
                     self.apply_current_view_filter();
-                    // Update task editor if task changed due to filtering
-                    if let Some(selected_task) = self.task_list.get_current_task() {
-                        self.task_editor.load_task(&selected_task);
-                    } else {
-                        // Clear task editor when no tasks match the current view
-                        self.task_editor.clear_all_fields();
-                    }
+                    self.task_list.clear_selection();
+                    self.task_editor.clear_all_fields();
                     self.view_list.view_changed = false;
                 }
             }
@@ -136,6 +134,8 @@ impl NormalModeUI {
                 match key_event.code {
                     KeyCode::Left | KeyCode::Char('h') => {
                         self.active_pane = ActivePane::ViewList;
+                        // self.task_list.clear_selection();
+                        self.task_editor.clear_all_fields();
                         self.task_list.deactivate();
                         self.view_list.activate();
                     }
@@ -145,9 +145,11 @@ impl NormalModeUI {
                     //     self.task_editor.activate();
                     // }
                     KeyCode::Enter => {
-                        self.active_pane = ActivePane::TaskEditor;
-                        self.task_list.deactivate();
-                        self.task_editor.activate();
+                        if !self.task_list.is_empty() {
+                            self.active_pane = ActivePane::TaskEditor;
+                            self.task_list.deactivate();
+                            self.task_editor.activate();
+                        }
                     }
                     _ => self.task_list.handle_key_event(key_event),
                 }
@@ -194,13 +196,20 @@ impl NormalModeUI {
             Direction::Horizontal,
             // vec![Constraint::Percentage(40), Constraint::Percentage(60)],
             [
+                Constraint::Length(15),
                 Constraint::Fill(1),
-                Constraint::Fill(2),
-                Constraint::Fill(2),
+                Constraint::Fill(1),
             ],
         )
         .split(main_area);
-        self.view_list.draw(f, chunks[0], last_frame);
+
+        let left_chunks = Layout::new(
+            Direction::Vertical,
+            [Constraint::Length(17), Constraint::Fill(1)],
+        )
+        .split(chunks[0]);
+
+        self.view_list.draw(f, left_chunks[0], last_frame);
         self.task_list.draw(f, chunks[1], last_frame);
         self.task_editor.draw(f, chunks[2], last_frame);
         let elapsed = last_frame.elapsed();
