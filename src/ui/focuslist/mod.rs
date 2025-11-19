@@ -61,7 +61,6 @@ pub struct FocusList<'a> {
     style: Style,
 }
 
-#[allow(dead_code)]
 impl<'a> FocusList<'a> {
     pub fn new<T>(items: T) -> Self
     where

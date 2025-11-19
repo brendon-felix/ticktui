@@ -1,7 +1,7 @@
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Layout, Rect},
-    widgets::{StatefulWidget, StatefulWidgetRef, Widget},
+    layout::Rect,
+    widgets::{StatefulWidget, Widget},
 };
 use tui_textarea::CursorMove;
 
@@ -17,15 +17,17 @@ pub struct CompositeEditorState {
     // sub_positions: Vec<Position>,
     last_area: Rect,
     sub_areas: Vec<Rect>,
+    splits_fn: Box<dyn Fn(Rect) -> Vec<Rect>>,
 }
 
 impl CompositeEditorState {
-    pub fn new(num_editors: usize) -> Self {
+    pub fn new(num_editors: usize, splits_fn: Box<dyn Fn(Rect) -> Vec<Rect>>) -> Self {
         Self {
             // position: Position::default(),
             // sub_positions: vec![Position::default(); num_editors],
             last_area: Rect::default(),
             sub_areas: vec![Rect::default(); num_editors],
+            splits_fn,
         }
     }
 
@@ -54,33 +56,30 @@ impl CompositeEditorState {
     }
 }
 
-// #[allow(dead_code)]
 pub struct CompositeEditor {
     pub editors: Vec<Editor>,
     active_index: Option<usize>,
-    constraints: Vec<Constraint>,
+    // constraints: Vec<Constraint>,
     // last_area_pos: Option<Position>,
 }
 
-#[allow(dead_code)]
 impl CompositeEditor {
     pub fn new(editors: Vec<Editor>) -> Self {
         let active_index = if editors.is_empty() { None } else { Some(0) };
-        let n_editors = editors.len();
         let mut composite = Self {
             editors,
             active_index,
-            constraints: vec![Constraint::Fill(1); n_editors],
+            // constraints: vec![Constraint::Fill(1); n_editors],
             // last_area_pos: None,
         };
         composite.set_active_editor(active_index);
         composite
     }
 
-    pub fn with_constraints(mut self, constraints: Vec<Constraint>) -> Self {
-        self.constraints = constraints;
-        self
-    }
+    // pub fn with_constraints(mut self, constraints: Vec<Constraint>) -> Self {
+    //     self.constraints = constraints;
+    //     self
+    // }
 
     pub fn set_mode(&mut self, mode: EditorMode) {
         self.execute_action(EditorAction::SetMode(mode));
@@ -124,23 +123,29 @@ impl CompositeEditor {
             .and_then(|index| self.editors.get_mut(index).map(|editor| (editor, index)))
     }
 
+    pub fn get_active_content(&self) -> Option<&[String]> {
+        self.active_index
+            .and_then(|index| self.editors.get(index))
+            .map(|editor| editor.get_lines())
+    }
+
     pub fn get_mode(&self) -> Option<EditorMode> {
         self.active_index
             .and_then(|index| self.editors.get(index))
             .map(|editor| editor.get_mode())
     }
 
-    pub fn create_chunks(&self, area: Rect) -> Vec<Rect> {
-        if self.constraints.is_empty() {
-            let constraints =
-                vec![Constraint::Percentage(100 / self.editors.len() as u16,); self.editors.len()];
-            Layout::vertical(constraints).split(area).to_vec()
-        } else {
-            Layout::vertical(self.constraints.clone())
-                .split(area)
-                .to_vec()
-        }
-    }
+    // pub fn create_chunks(&self, area: Rect) -> Vec<Rect> {
+    //     if self.constraints.is_empty() {
+    //         let constraints =
+    //             vec![Constraint::Percentage(100 / self.editors.len() as u16,); self.editors.len()];
+    //         Layout::vertical(constraints).split(area).to_vec()
+    //     } else {
+    //         Layout::vertical(self.constraints.clone())
+    //             .split(area)
+    //             .to_vec()
+    //     }
+    // }
 
     pub fn is_cursor_at_line_start(&mut self) -> bool {
         if let Some((editor, _)) = self.get_active_editor() {
@@ -169,16 +174,16 @@ impl CompositeEditor {
     pub fn set_style_active(&mut self) {
         self.editors.iter_mut().enumerate().for_each(|(i, editor)| {
             if Some(i) == self.active_index {
-                editor.set_style_active();
+                editor.set_active(true);
             } else {
-                editor.set_style_inactive();
+                editor.set_active(false);
             }
         });
     }
 
     pub fn set_style_inactive(&mut self) {
         self.editors.iter_mut().for_each(|editor| {
-            editor.set_style_inactive();
+            editor.set_active(false);
         });
     }
 
@@ -329,39 +334,40 @@ impl EditorActions for CompositeEditor {
 //     }
 // }
 
-impl StatefulWidget for CompositeEditor {
-    type State = CompositeEditorState;
+// impl StatefulWidget for CompositeEditor {
+//     type State = CompositeEditorState;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let chunks = self.create_chunks(area);
-        state.set_sub_areas(chunks.clone());
-        for (i, editor) in self.editors.into_iter().enumerate() {
-            editor.render(chunks[i], buf);
-        }
-    }
-}
+//     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+//         let chunks = self.create_chunks(area);
+//         state.set_sub_areas(chunks.clone());
+//         for (i, editor) in self.editors.into_iter().enumerate() {
+//             editor.render(chunks[i], buf);
+//         }
+//     }
+// }
 
-impl StatefulWidgetRef for CompositeEditor {
-    type State = CompositeEditorState;
+// impl StatefulWidgetRef for CompositeEditor {
+//     type State = CompositeEditorState;
 
-    fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let chunks = self.create_chunks(area);
-        // state.set_sub_positions(chunks.iter().map(|chunk| chunk.as_position()).collect());
-        state.set_sub_areas(chunks.clone());
-        for (i, editor) in self.editors.iter().enumerate() {
-            editor.render(chunks[i], buf);
-        }
-    }
-}
+//     fn render_ref(&self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+//         let chunks = self.create_chunks(area);
+//         // state.set_sub_positions(chunks.iter().map(|chunk| chunk.as_position()).collect());
+//         state.set_sub_areas(chunks.clone());
+//         for (i, editor) in self.editors.iter().enumerate() {
+//             editor.render(chunks[i], buf);
+//         }
+//     }
+// }
 
 impl StatefulWidget for &mut CompositeEditor {
     type State = CompositeEditorState;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let chunks = self.create_chunks(area);
+        let chunks = (state.splits_fn)(area);
         // state.set_sub_positions(chunks.iter().map(|chunk| chunk.as_position()).collect());
         state.set_sub_areas(chunks.clone());
         for (i, editor) in self.editors.iter_mut().enumerate() {
+            editor.update_style();
             editor.render(chunks[i], buf);
         }
     }

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -8,62 +8,70 @@ use ratatui::{
     widgets::{Block, Paragraph},
 };
 use std::{sync::Arc, time::Instant};
-use tachyonfx::EffectManager;
-use ticks::tasks::Task;
+use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
+use ticks::tasks::{Task, TaskID};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    tasks::{TaskAction, is_due_today, is_overdue},
+    tasks::{TaskAction, is_overdue},
     ui::{
         multiselect::{MultiSelectList, MultiSelectListItem, MultiSelectListState},
-        utils::format_date,
+        utils,
+        views::View,
     },
 };
 
-// const ITEM_HEIGHT: u16 = 3;
-
-// pub enum TaskListMode {
-//     Normal,
-//     Visual,
-// }
-
 pub struct TaskList {
-    tasks: Vec<Arc<Task>>,
+    all_tasks: Arc<Vec<Arc<Task>>>,
+    shown_tasks: Vec<TaskID>,
+    // filtered_indices: Vec<usize>,
+    list: MultiSelectList<'static>,
     list_state: MultiSelectListState,
     style: Style,
     current_block: Option<Block<'static>>,
     pub tasks_loaded: bool,
     pub task_changed: bool,
-    _effects: EffectManager<()>,
+    last_area: Option<Rect>,
+    effects: EffectManager<()>,
     tx: UnboundedSender<AppAction>,
 }
 
-#[allow(dead_code)]
 impl TaskList {
-    pub fn new(tasks: Vec<Arc<Task>>, tx: UnboundedSender<AppAction>) -> Self {
+    pub fn new(tasks: Arc<Vec<Arc<Task>>>, tx: UnboundedSender<AppAction>) -> Self {
+        // let filtered_indices = (0..tasks.len()).collect();
         let list_state = MultiSelectListState::default();
-        let current_block = Some(
-            Block::default()
-                .title("Tasks")
-                // .border_set(BorderType::Rounded.to_border_set())
-                .borders(ratatui::widgets::Borders::ALL),
-        );
-        let _effects: EffectManager<()> = EffectManager::default();
+        let current_block = Block::default()
+            .title("Tasks")
+            // .border_set(BorderType::Rounded.to_border_set())
+            .borders(ratatui::widgets::Borders::ALL);
+        let list = MultiSelectList::default()
+            .with_block(current_block.clone())
+            .with_highlight_symbol(" ")
+            .with_highlight_style(
+                Style::new()
+                    .bg(Color::Rgb(30, 30, 30))
+                    .add_modifier(Modifier::BOLD),
+            );
+        let effects: EffectManager<()> = EffectManager::default();
         Self {
-            tasks,
+            all_tasks: tasks,
+            shown_tasks: vec![],
+            // filtered_indices,
             list_state,
+            list,
             style: Style::default(),
-            current_block,
+            current_block: Some(current_block),
             tasks_loaded: false,
-            task_changed: true,
-            _effects,
+            task_changed: false,
+            last_area: None,
+            effects,
             tx,
         }
     }
 
     pub fn activate(&mut self) {
-        if self.tasks.is_empty() {
+        if self.shown_tasks.is_empty() {
             self.list_state.select(None);
         } else if self.list_state.selected().is_none() {
             self.list_state.select(Some(0));
@@ -88,70 +96,85 @@ impl TaskList {
         self.style = Style::default().add_modifier(Modifier::DIM);
     }
 
-    pub fn filter_tasks<F>(&mut self, filter_fn: F)
-    where
-        F: Fn(DateTime<Local>, &Task) -> bool,
-    {
+    pub fn set_all_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
+        self.all_tasks = tasks;
+    }
+
+    pub fn filter_by_view(&mut self, view: &View) {
         let now = Local::now();
-        self.tasks.retain(|task| filter_fn(now, task));
-        if self.tasks.is_empty() {
+        let old_selection = self.get_current_task();
+
+        self.shown_tasks = view.get_filtered_task_ids(now, self.all_tasks.as_ref());
+        if self.shown_tasks.is_empty() {
             self.list_state.select(None);
         } else if let Some(selected) = self.list_state.selected() {
-            if selected >= self.tasks.len() {
-                self.list_state.select(Some(self.tasks.len() - 1));
+            if selected >= self.shown_tasks.len() {
+                self.list_state.select(Some(self.shown_tasks.len() - 1));
+            }
+        }
+
+        let new_selection = self.get_current_task();
+        if old_selection.as_ref().map(|t| t.get_id()) != new_selection.as_ref().map(|t| t.get_id())
+        {
+            self.task_changed = true;
+        }
+        // if let Some(area) = self.list.calculate_effect_area() {
+        //     let timer = EffectTimer::from_ms(500, Interpolation::Linear);
+        //     // let fx = fx::coalesce(timer);
+        //     let c = Color::Rgb(25, 25, 25);
+        //     let fx = sweep_in(Motion::UpToDown, 5, 0, c, timer).with_area(area);
+        //     self.effects.add_effect(fx);
+        // }
+        let items: Vec<MultiSelectListItem> = self
+            .shown_tasks
+            .iter()
+            .filter_map(|task_id| {
+                self.all_tasks.iter().find_map(|task| {
+                    if task.get_id() == task_id {
+                        Some(create_list_item(task))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        self.list.set_items(items);
+        if let Some(area) = self.last_area {
+            let area = if let Some(block) = self.current_block.clone() {
+                block.inner(area)
+            } else {
+                area
+            };
+            if let Some(effect_area) = self.list.calculate_effect_area(area) {
+                let timer = EffectTimer::from_ms(200, Interpolation::Linear);
+                // let fx = fx::coalesce(timer);
+                let c = Color::Rgb(25, 25, 25);
+                let fx = fx::sweep_in(Motion::UpToDown, 5, 0, c, timer).with_area(effect_area);
+                self.effects.add_effect(fx);
             }
         }
     }
 
-    pub fn with_tasks(mut self, tasks: Vec<Arc<Task>>) -> Self {
-        self.tasks = tasks;
-        self
-    }
-
-    pub fn set_tasks(&mut self, tasks: Vec<Arc<Task>>) {
-        self.tasks = tasks;
-        if self.tasks.is_empty() {
-            self.list_state.select(None);
-        }
-        if self.list_state.selected().is_none() && !self.tasks.is_empty() {
-            self.list_state.select(Some(0));
-            self.task_changed = true;
-        } else if self.tasks.is_empty() {
-            self.list_state.select(None);
-        }
-    }
-
-    pub fn add_task(&mut self, _task: Arc<Task>) {
-        // self.tasks.push(Task::new(task));
-    }
-
-    pub fn remove_task(&mut self, index: usize) {
-        if index < self.tasks.len() {
-            if let Some(task) = self.tasks.get(index) {
-                let project_id = task.project_id.clone();
-                let task_id = task.get_id().clone();
-                let task_action =
-                    AppAction::TaskAction(project_id.clone(), task_id.clone(), TaskAction::Delete);
-                let confirm_action = AppAction::Confirm(Box::new(AppAction::MultiAction(vec![
-                    task_action,
-                    AppAction::RefreshTasks,
-                ])));
-                let _ = self.tx.send(confirm_action);
-                if self.tasks.is_empty() {
-                    self.list_state.select(None);
-                } else if index >= self.tasks.len() {
-                    self.list_state.select(Some(self.tasks.len() - 1));
+    pub fn remove_task(&mut self, task_id: TaskID) {
+        if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == &task_id) {
+            let project_id = task.project_id.clone();
+            let task_id = task.get_id().clone();
+            let task_action =
+                AppAction::TaskAction(project_id.clone(), task_id.clone(), TaskAction::Delete);
+            let confirm_action = AppAction::Confirm(Box::new(AppAction::MultiAction(vec![
+                task_action,
+                AppAction::RefreshData,
+            ])));
+            let _ = self.tx.send(confirm_action);
+            if self.shown_tasks.is_empty() {
+                self.list_state.select(None);
+            } else if let Some(selected) = self.list_state.selected() {
+                if selected >= self.shown_tasks.len() {
+                    self.list_state.select(Some(self.shown_tasks.len() - 1));
                 }
             }
         }
     }
-
-    // pub fn remove_range_inclusive(&mut self, range: (usize, usize)) {
-    //     let (start, end) = range;
-    //     if start < self.tasks.len() && end < self.tasks.len() && start <= end {
-    //         self.tasks.drain(start..=end);
-    //     }
-    // }
 
     pub fn remove_selected_tasks(&mut self) {
         if let Some(curr) = self.list_state.selected() {
@@ -162,14 +185,31 @@ impl TaskList {
                     (curr, start)
                 };
                 // self.remove_range_inclusive((s, e));
-                let task_actions = self.tasks[s..=e].iter().map(|task| {
-                    let project_id = task.project_id.clone();
-                    let task_id = task.get_id().clone();
-                    AppAction::TaskAction(project_id, task_id, TaskAction::Delete)
+                // let task_actions = self.filtered_indices[s..=e].iter().filter_map(|&idx| {
+                //     self.all_tasks.get(idx).map(|task| {
+                //         let project_id = task.project_id.clone();
+                //         let task_id = task.get_id().clone();
+                //         AppAction::TaskAction(project_id, task_id, TaskAction::Delete)
+                //     })
+                // });
+                let task_actions = self.shown_tasks[s..=e].iter().filter_map(|task_id| {
+                    self.all_tasks.iter().find_map(|task| {
+                        if task.get_id() == task_id {
+                            let project_id = task.project_id.clone();
+                            let task_id = task.get_id().clone();
+                            Some(AppAction::TaskAction(
+                                project_id,
+                                task_id,
+                                TaskAction::Delete,
+                            ))
+                        } else {
+                            None
+                        }
+                    })
                 });
                 let confirmation_action = AppAction::Confirm(Box::new(AppAction::MultiAction(
                     task_actions
-                        .chain(std::iter::once(AppAction::RefreshTasks))
+                        .chain(std::iter::once(AppAction::RefreshData))
                         .collect(),
                 )));
                 let _ = self.tx.send(confirmation_action);
@@ -177,34 +217,29 @@ impl TaskList {
                 self.list_state.select(Some(s));
                 self.list_state.end_visual_selection();
             } else {
-                self.remove_task(curr);
+                self.remove_task(self.shown_tasks[curr].clone());
                 self.list_state.select(Some(curr));
             }
         }
     }
 
-    pub fn set_block(&mut self, block: Block<'static>) {
-        self.current_block = Some(block);
-    }
-
-    // pub fn get_tasks(&self) -> &Vec<TaskItem> {
-    //     &self.tasks
-    // }
-
-    pub fn get_list_state(&self) -> &MultiSelectListState {
-        &self.list_state
-    }
-
     pub fn get_current_task(&self) -> Option<Arc<Task>> {
-        if let Some(idx) = self.list_state.selected() {
-            self.tasks.get(idx).cloned()
-        } else {
-            None
-        }
+        self.list_state.selected().and_then(|selected_idx| {
+            self.shown_tasks.get(selected_idx).and_then(|task_id| {
+                self.all_tasks.iter().find_map(|task| {
+                    if task.get_id() == task_id {
+                        Some(Arc::clone(task))
+                    } else {
+                        None
+                    }
+                })
+            })
+        })
     }
 
     pub fn handle_key_event(&mut self, key: KeyEvent) {
-        let idx = self.list_state.selected();
+        // let idx = self.list_state.selected();
+        let task_before = self.get_current_task();
         if self.list_state.is_in_visual_mode() {
             match key.code {
                 KeyCode::Char('j') | KeyCode::Down => self.list_state.select_next(),
@@ -227,22 +262,26 @@ impl TaskList {
                 _ => {}
             }
         }
-        self.task_changed = idx != self.list_state.selected();
+        if let Some(task_after) = self.get_current_task() {
+            if let Some(task_before) = task_before {
+                self.task_changed = task_before.get_id() != task_after.get_id();
+            }
+        }
     }
 
-    pub fn draw(&mut self, f: &mut Frame, area: Rect, _last_frame: Instant) {
-        if self.tasks.len() == 0 {
+    pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
+        if self.shown_tasks.len() == 0 {
             let msg = if !self.tasks_loaded {
-                "Loading Tasks..."
+                "Loading tasks..."
             } else {
-                "No Tasks Available"
+                "No tasks available"
             };
             let mut p = Paragraph::new(msg)
                 .style(self.style)
                 .alignment(Alignment::Center)
                 .block(
                     Block::default()
-                        .title("No Tasks")
+                        .title("No projects")
                         // .border_set(BorderType::Rounded.to_border_set())
                         .borders(ratatui::widgets::Borders::ALL),
                 );
@@ -253,88 +292,59 @@ impl TaskList {
             return;
         }
 
-        let items: Vec<MultiSelectListItem> = self
-            .tasks
-            .iter()
-            .map(|task| create_list_item(task))
-            .collect();
-        let mut task_list = MultiSelectList::new(items)
-            .with_style(self.style)
-            // .with_highlight_symbol(" ● ")
-            .with_highlight_symbol(" ")
-            .with_highlight_style(
-                Style::new()
-                    .bg(Color::Rgb(30, 30, 30))
-                    .add_modifier(Modifier::BOLD),
-            );
-
+        // let items: Vec<MultiSelectListItem> = self
+        //     .shown_tasks
+        //     .iter()
+        //     .filter_map(|task_id| {
+        //         self.all_tasks.iter().find_map(|task| {
+        //             if task.get_id() == task_id {
+        //                 Some(create_list_item(task))
+        //             } else {
+        //                 None
+        //             }
+        //         })
+        //     })
+        //     .collect();
+        // let mut task_list = MultiSelectList::new(items)
+        //     .with_style(self.style)
+        //     // .with_highlight_symbol(" ● ")
+        //     .with_highlight_symbol(" ")
+        //     .with_highlight_style(
+        //         Style::new()
+        //             .bg(Color::Rgb(30, 30, 30))
+        //             .add_modifier(Modifier::BOLD),
+        //     );
+        // task_list.
+        // let mut effect_area = area;
+        // if let Some(block) = self.current_block.clone() {
+        //     // effect_area = block.inner(area);
+        //     task_list = task_list.with_block(block);
+        // }
+        // let effect_area = task_list.calculate_effect_area(area);
         if let Some(block) = self.current_block.clone() {
-            task_list = task_list.with_block(block);
+            self.list.set_block(block);
         }
-        f.render_stateful_widget(task_list, area, &mut self.list_state);
-        // let elapsed = last_frame.elapsed();
-        // self.effects
-        //     .process_effects(elapsed.into(), f.buffer_mut(), area);
+        f.render_stateful_widget(&self.list, area, &mut self.list_state);
+        let elapsed = last_frame.elapsed();
+        self.effects
+            .process_effects(elapsed.into(), f.buffer_mut(), area);
+        self.last_area = Some(area);
     }
 }
 
 fn create_list_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
     let now = chrono::Local::now();
-    let is_today = is_due_today(now, task);
     let line1 = Line::from("");
     let line2 = Line::from(task.title.clone());
-    // let line3 = Line::from("");
-    let line3 = if let Some(date_str) = format_date(&task.due_date, task.is_all_day, is_today) {
-        let mut line = Line::from(date_str);
+    let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+    let line3 = {
+        let mut line = Line::from(datetime_str);
         if is_overdue(now, task) {
             line = line.style(Style::default().fg(Color::Red).dim());
         } else {
             line = line.style(Style::default().dim());
         }
         line
-    } else {
-        Line::from("")
     };
     MultiSelectListItem::new(vec![line1, line2, line3])
 }
-
-// impl AppWidget for TaskList {
-//     fn set_widget_style(&mut self, style: WidgetStyle) {
-//         match style {
-//             WidgetStyle::Active => {
-//                 let is_active = true;
-//                 let borders = Borders::ALL;
-//                 self.set_block(create_block(self.get_title_owned(), is_active, borders));
-//                 self.set_style(Style::default());
-//             }
-//             WidgetStyle::Inactive => {
-//                 let is_active = false;
-//                 let borders = Borders::ALL;
-//                 self.set_block(create_block(self.get_title_owned(), is_active, borders));
-//                 self.set_style(Style::default().add_modifier(Modifier::DIM));
-//             }
-//         }
-//     }
-
-//     fn set_last_area_pos(&mut self, area_pos: Position) {
-//         self.last_area_pos = Some(area_pos);
-//     }
-
-//     fn on_click(&mut self, pos: Position) {
-//         if let Some(area_pos) = self.last_area_pos {
-//             let local = Position::new(
-//                 pos.x.saturating_sub(area_pos.x),
-//                 pos.y.saturating_sub(area_pos.y),
-//             );
-//             let (_x, y) = if let Some(_block) = &self.current_block {
-//                 (local.x.saturating_sub(1), local.y.saturating_sub(1))
-//             } else {
-//                 local.into()
-//             };
-//             let index = (y / ITEM_HEIGHT) as usize;
-//             if index < self.tasks.len() {
-//                 self.list_state.select(Some(index));
-//             }
-//         }
-//     }
-// }

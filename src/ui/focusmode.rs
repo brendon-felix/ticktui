@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
@@ -12,25 +12,28 @@ use std::{
     time::{Duration, Instant},
 };
 use tachyonfx::{EffectManager, EffectTimer, fx};
-use ticks::tasks::{Task, TaskPriority};
+use ticks::tasks::{Task, TaskID, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    tasks::{TaskAction, is_due_today, is_overdue},
+    tasks::{TaskAction, is_overdue},
     ui::{
         animate::{Animation, AnimationDirection, AnimationType},
         focuslist::{
             FocusList, FocusListItem,
             state::{FocusListPosition, FocusListState},
         },
-        utils::format_date,
+        utils,
+        views::View,
     },
 };
 
 pub struct FocusModeUI {
     // test_content: String,
-    tasks: Vec<Arc<Task>>,
+    all_tasks: Arc<Vec<Arc<Task>>>,
+    shown_tasks: Vec<TaskID>,
+    current_view: Option<View>,
     list: FocusList<'static>,
     list_state: FocusListState,
     // prev_buf: Buffer,
@@ -44,8 +47,10 @@ pub struct FocusModeUI {
 impl FocusModeUI {
     pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         Self {
-            tasks: Vec::new(),
-            list: FocusList::default(),
+            all_tasks: Arc::new(Vec::new()),
+            shown_tasks: Vec::new(),
+            current_view: None,
+            list: FocusList::new(Vec::<FocusListItem>::new()),
             list_state: FocusListState::default(),
             effects: EffectManager::default(),
             pending_completion: None,
@@ -53,62 +58,77 @@ impl FocusModeUI {
         }
     }
 
-    // pub fn with_tasks(mut self, tasks: Vec<Arc<Task>>) -> Self {
-    //     self.tasks = tasks;
-    //     self
-    // }
-
-    pub fn set_tasks(&mut self, tasks: Vec<Arc<Task>>) {
-        self.tasks = tasks;
-        if self.list.focused_index().is_none() && !self.tasks.is_empty() {
-            self.list.focus(Some(0));
-        } else if self.tasks.is_empty() {
-            self.list.focus(None);
-        }
+    pub fn reset_areas(&mut self) {
+        self.list_state.reset_areas();
     }
 
-    pub fn filter_tasks<F>(&mut self, filter_fn: F)
-    where
-        F: Fn(DateTime<Local>, &Task) -> bool,
-    {
-        let now = Local::now();
-        self.tasks.retain(|task| filter_fn(now, task));
-        if self.tasks.is_empty() {
+    pub fn set_all_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
+        self.all_tasks = tasks;
+    }
+
+    pub fn set_view(&mut self, view: View) {
+        self.shown_tasks = view.get_filtered_task_ids(Local::now(), self.all_tasks.as_ref());
+        if self.shown_tasks.is_empty() {
+            self.list.focus(None);
+        } else {
+            self.list.focus(Some(0));
+        }
+        self.current_view = Some(view);
+    }
+
+    pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
+        self.set_all_tasks(tasks);
+        // Apply the current view filter
+        if let Some(current_view) = &self.current_view {
+            self.shown_tasks =
+                current_view.get_filtered_task_ids(Local::now(), self.all_tasks.as_ref());
+        } else {
+            self.shown_tasks = self
+                .all_tasks
+                .iter()
+                .map(|task| task.get_id())
+                .cloned()
+                .collect();
+        }
+        if self.shown_tasks.is_empty() {
             self.list.focus(None);
         } else if let Some(selected) = self.list.focused_index() {
-            if selected >= self.tasks.len() {
-                self.list.focus(Some(self.tasks.len() - 1));
+            if selected >= self.shown_tasks.len() {
+                self.list.focus(Some(self.shown_tasks.len() - 1));
             }
+        } else {
+            self.list.focus(Some(0));
         }
+        // self.tasks_loaded = true;
     }
 
-    pub fn update_tasks(&mut self, tasks: Vec<Arc<Task>>) {
-        let len_before = self.tasks.len();
-        self.set_tasks(tasks);
-        self.filter_tasks(|now, task| is_due_today(now, task) | is_overdue(now, task));
-        if len_before != self.tasks.len() {
-            let duration = Duration::from_millis(1000);
-            [
-                FocusListPosition::Prev,
-                FocusListPosition::Focused,
-                FocusListPosition::Next,
-            ]
-            .iter()
-            .for_each(|pos| {
-                if let Some(area_ref) = self.list_state.get_area_ref(*pos) {
-                    let fx = fx::dynamic_area(
-                        area_ref,
-                        fx::fade_from_fg(
-                            Color::Rgb(25, 25, 25),
-                            EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut),
-                        ),
-                    );
-                    self.effects.add_effect(fx);
-                }
-            });
-        }
-        // self.task_list.tasks_loaded = true;
-    }
+    // pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
+    //     let len_before = self.shown_tasks.len();
+    //     self.set_all_tasks(tasks);
+    //     self.filter_tasks(|now, task| is_due_today(now, task) | is_overdue(now, task));
+    //     if len_before != self.filtered_indices.len() {
+    //         let duration = Duration::from_millis(1000);
+    //         [
+    //             FocusListPosition::Prev,
+    //             FocusListPosition::Focused,
+    //             FocusListPosition::Next,
+    //         ]
+    //         .iter()
+    //         .for_each(|pos| {
+    //             if let Some(area_ref) = self.list_state.get_area_ref(*pos) {
+    //                 let fx = fx::dynamic_area(
+    //                     area_ref,
+    //                     fx::fade_from_fg(
+    //                         Color::Rgb(25, 25, 25),
+    //                         EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut),
+    //                     ),
+    //                 );
+    //                 self.effects.add_effect(fx);
+    //             }
+    //         });
+    //     }
+    //     // self.task_list.tasks_loaded = true;
+    // }
 
     pub fn schedule_completion(&mut self, delay_ms: u64) {
         if let Some(idx) = self.list.focused_index() {
@@ -118,23 +138,26 @@ impl FocusModeUI {
     }
 
     pub fn process_pending_completion(&mut self) {
-        if let Some((idx, removal_time)) = self.pending_completion {
+        if let Some((shown_idx, removal_time)) = self.pending_completion {
             if Instant::now() >= removal_time {
-                if idx < self.tasks.len() {
-                    let task = self.tasks.remove(idx);
-                    let project_id = task.project_id.clone();
-                    let task_id = task.get_id().clone();
-                    self.tx
-                        .send(AppAction::TaskAction(
-                            project_id,
-                            task_id,
-                            TaskAction::Complete,
-                        ))
-                        .unwrap_or(());
-                    if self.tasks.is_empty() {
+                if shown_idx < self.shown_tasks.len() {
+                    let task_id = &self.shown_tasks[shown_idx];
+                    if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
+                        let project_id = task.project_id.clone();
+                        let task_id = task.get_id().clone();
+                        self.tx
+                            .send(AppAction::TaskAction(
+                                project_id,
+                                task_id,
+                                TaskAction::Complete,
+                            ))
+                            .unwrap_or(());
+                    }
+                    self.shown_tasks.remove(shown_idx);
+                    if self.shown_tasks.is_empty() {
                         self.list.focus(None);
-                    } else if idx >= self.tasks.len() {
-                        self.list.focus(Some(self.tasks.len() - 1));
+                    } else if shown_idx >= self.shown_tasks.len() {
+                        self.list.focus(Some(self.shown_tasks.len() - 1));
                     }
                 }
                 self.pending_completion = None;
@@ -285,7 +308,7 @@ impl FocusModeUI {
                     }
                 }
             }
-            KeyCode::Enter if self.list.len() > 0 => {
+            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('e') if self.list.len() > 0 => {
                 self.schedule_completion(300);
                 if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
                     let duration = Duration::from_millis(300);
@@ -301,7 +324,7 @@ impl FocusModeUI {
                     self.effects.add_effect(fx);
                 }
                 if let Some(i) = self.list.focused_index() {
-                    if i + 1 < self.tasks.len() {
+                    if i + 1 < self.shown_tasks.len() {
                         let translate = AnimationType::TranslateFrom { x: 0, y: 10 };
                         let translate_grow = vec![
                             AnimationType::TranslateFrom { x: 0, y: 10 },
@@ -424,9 +447,16 @@ impl FocusModeUI {
         Block::default()
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))
             .render(f.area(), f.buffer_mut());
+        // let items: Vec<FocusListItem> = self
+        //     .filtered_indices
+        //     .iter()
+        //     .filter_map(|&idx| self.all_tasks.get(idx))
+        //     .map(|task| create_list_item(task))
+        //     .collect();
         let items: Vec<FocusListItem> = self
-            .tasks
+            .shown_tasks
             .iter()
+            .filter_map(|task_id| self.all_tasks.iter().find(|t| t.get_id() == task_id))
             .map(|task| create_list_item(task))
             .collect();
         self.list.set_items(items);
@@ -446,20 +476,19 @@ impl FocusModeUI {
 
 fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
     let now = chrono::Local::now();
-    let is_today = is_due_today(now, task);
 
     let line1 = Line::from("");
     let line2 = Line::from(task.title.clone());
-    let line3 = if let Some(date_str) = format_date(&task.due_date, task.is_all_day, is_today) {
-        let mut line = Line::from(date_str);
+    // let line3 = if let Some(date_str) = format_date(&task.due_date, task.is_all_day, is_today) {
+    let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+    let line3 = {
+        let mut line = Line::from(datetime_str);
         if is_overdue(now, task) {
             line = line.style(Style::default().fg(Color::Red).dim());
         } else {
             line = line.style(Style::default().dim());
         }
         line
-    } else {
-        Line::from("")
     };
     let mut item = FocusListItem::new(vec![line1, line2, line3]);
     match task.priority {

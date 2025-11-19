@@ -60,6 +60,14 @@ impl FocusListState {
         }
     }
 
+    pub fn reset_areas(&mut self) {
+        self.prev_prev_area = None;
+        self.prev_area = None;
+        self.focused_area = None;
+        self.next_area = None;
+        self.next_next_area = None;
+    }
+
     pub fn start_animation(&mut self, animation: Animation, position: FocusListPosition) {
         match position {
             FocusListPosition::PrevPrev => {

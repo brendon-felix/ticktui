@@ -105,8 +105,20 @@ impl<'a> MultiSelectList<'a> {
         self
     }
 
+    pub fn set_items<T>(&mut self, items: T)
+    where
+        T: IntoIterator,
+        T::Item: Into<MultiSelectListItem<'a>>,
+    {
+        self.items = items.into_iter().map(Into::into).collect();
+    }
+
     pub fn set_style(&mut self, style: Style) {
         self.style = style;
+    }
+
+    pub fn set_block(&mut self, block: Block<'a>) {
+        self.block = Some(block);
     }
 
     pub fn len(&self) -> usize {
@@ -273,6 +285,13 @@ impl StatefulWidget for &MultiSelectList<'_> {
             //     }
             // }
         }
+        let all_items_area = Rect {
+            x: list_area.x,
+            y: list_area.y,
+            width: list_area.width,
+            height: current_height,
+        };
+        state.last_items_area = Some(all_items_area);
     }
 }
 
@@ -325,6 +344,27 @@ impl MultiSelectList<'_> {
             }
         }
         (first_visible_index, last_visible_index)
+    }
+
+    // pub fn compute_items_area(&self, area: Rect) -> Option<Rect> {
+    //     self.items.iter().next().map(|first_item| {
+    //         let content_height = first_item.content.height() as u16;
+    //         let vertical_padding = (ITEM_HEIGHT.saturating_sub(content_height)) / 2;
+    //         Rect {
+    //             x: area.x,
+    //             y: area.y + vertical_padding,
+    //             width: area.width,
+    //             height: area.height.saturating_sub(vertical_padding * 2),
+    //         }
+    //     })
+    // }
+
+    pub fn calculate_effect_area(&self, area: Rect) -> Option<Rect> {
+        if self.items.is_empty() {
+            return None;
+        }
+        let height = self.items.len() as u16 * ITEM_HEIGHT;
+        Rect::new(area.x, area.y, area.width, height).into()
     }
 
     fn apply_scroll_padding_to_selected_index(

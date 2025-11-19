@@ -24,7 +24,7 @@ pub enum AppAction {
     Resize(u16, u16),
     Quit,
     Error(String),
-    RefreshTasks,
+    RefreshData,
     UpdateCache,
     TaskAction(ProjectID, TaskID, TaskAction),
     Confirm(Box<AppAction>),
@@ -34,7 +34,7 @@ pub enum AppAction {
 
 pub struct App {
     client: Arc<TickTick>,
-    cached_tasks: Vec<Arc<Task>>,
+    cached_tasks: Arc<Vec<Arc<Task>>>,
     pending_tasks: Arc<Mutex<Option<Vec<Task>>>>,
     ti: AppTerminal,
     ui: AppUI,
@@ -47,7 +47,7 @@ pub struct App {
 impl App {
     pub fn new(client: Arc<TickTick>) -> Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
-        let cached_tasks = Vec::new();
+        let cached_tasks = Arc::new(Vec::new());
         let pending_tasks = Arc::new(Mutex::new(None));
         let ti = AppTerminal::new()?;
         let ui = AppUI::new(tx.clone());
@@ -69,7 +69,7 @@ impl App {
     pub async fn run(&mut self) -> Result<()> {
         let tx = self.tx.clone();
         self.ti.enter()?;
-        self.tx.send(AppAction::RefreshTasks)?;
+        self.tx.send(AppAction::RefreshData)?;
 
         loop {
             if let Some(event) = self.ti.next().await {
@@ -116,8 +116,8 @@ impl App {
         };
 
         if let Some(tasks) = tasks_opt {
-            self.cached_tasks = tasks.into_iter().map(Arc::new).collect();
-            self.ui.update_tasks(self.cached_tasks.clone());
+            self.cached_tasks = Arc::new(tasks.into_iter().map(Arc::new).collect());
+            self.ui.update_tasks(Arc::clone(&self.cached_tasks));
         }
     }
 
@@ -169,15 +169,18 @@ impl App {
         match action {
             AppAction::Tick => {
                 self.tick_count += 1;
-                if self.tick_count >= 60 {
+                if self.tick_count >= 120 {
                     self.tick_count = 0;
-                    tx.send(AppAction::RefreshTasks)?;
+                    tx.send(AppAction::RefreshData)?;
                 }
             }
             AppAction::Render(last_frame) => self.render(last_frame)?,
-            AppAction::Resize(w, h) => self.ti.resize(w, h)?,
+            AppAction::Resize(w, h) => {
+                self.ti.resize(w, h)?;
+                self.ui.reset_areas();
+            }
             AppAction::Quit => self.quitting = true,
-            AppAction::RefreshTasks => self.refresh_tasks(tx.clone()),
+            AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
             AppAction::TaskAction(p_id, t_id, action) => {
                 self.execute_task_action(p_id, t_id, action)

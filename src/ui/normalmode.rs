@@ -12,16 +12,21 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    tasks::{is_due_today, is_overdue},
-    ui::{taskeditor::TaskEditor, tasklist::TaskList, utils::centered_area},
+    ui::{
+        taskeditor::TaskEditor,
+        tasklist::TaskList,
+        views::{View, ViewList},
+    },
 };
 
 enum ActivePane {
+    ViewList,
     TaskList,
     TaskEditor,
 }
 
 pub struct NormalModeUI {
+    view_list: ViewList,
     task_list: TaskList,
     task_editor: TaskEditor,
     active_pane: ActivePane,
@@ -30,8 +35,10 @@ pub struct NormalModeUI {
 }
 impl NormalModeUI {
     pub fn new(tx: UnboundedSender<AppAction>) -> Self {
-        let mut task_list = TaskList::new(vec![], tx.clone());
-        task_list.activate();
+        let mut view_list = ViewList::new();
+        view_list.activate();
+        let mut task_list = TaskList::new(Arc::new(vec![]), tx.clone());
+        task_list.deactivate();
         let mut task_editor = TaskEditor::new();
         task_editor.deactivate();
         let mut effects: EffectManager<()> = EffectManager::default();
@@ -40,46 +47,122 @@ impl NormalModeUI {
         let fx = fx::sweep_in(Motion::UpToDown, 10, 0, c, timer);
         effects.add_effect(fx);
         Self {
+            view_list,
             task_list,
             task_editor,
-            active_pane: ActivePane::TaskList,
+            active_pane: ActivePane::ViewList,
             effects,
             // tx,
         }
     }
 
-    pub fn update_tasks(&mut self, tasks: Vec<Arc<Task>>) {
-        self.task_list.set_tasks(tasks);
-        self.task_list
-            .filter_tasks(|now, task| is_due_today(now, task) | is_overdue(now, task));
-        self.task_list.tasks_loaded = true;
+    /// Updates the task editor if the currently selected task has changed.
+    /// This is called after task filtering or task list navigation.
+    fn update_task_editor_if_needed(&mut self) {
         if self.task_list.task_changed {
             if let Some(selected_task) = self.task_list.get_current_task() {
                 self.task_editor.load_task(&selected_task);
+            } else {
+                // Clear task editor when no task is selected (empty list)
+                self.task_editor.clear_all_fields();
             }
             self.task_list.task_changed = false;
         }
     }
 
+    pub fn get_current_view(&self) -> Option<&View> {
+        self.view_list.get_current_view()
+    }
+
+    fn apply_current_view_filter(&mut self) {
+        if let Some(current_view) = self.view_list.get_current_view() {
+            self.task_list.filter_by_view(current_view);
+        }
+    }
+
+    pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
+        self.task_list.set_all_tasks(tasks);
+        // Apply the current view filter
+        self.apply_current_view_filter();
+        self.task_list.tasks_loaded = true;
+        self.update_task_editor_if_needed();
+    }
+
+    // /// Sets the view filter programmatically and applies it to the task list.
+    // /// This can be used for testing or external view changes.
+    // pub fn set_view_filter(&mut self, view: &View) {
+    //     // Update the view list selection to match the provided view
+    //     if let Some(index) = self.view_list.views.iter().position(|v| v == view) {
+    //         self.view_list.set_selection(index);
+    //     }
+    //     self.task_list.filter_by_view(view);
+    //     if let Some(selected_task) = self.task_list.get_current_task() {
+    //         self.task_editor.load_task(&selected_task);
+    //     }
+    // }
+
     pub fn allow_quit(&self) -> bool {
         match self.active_pane {
+            ActivePane::ViewList => true,
             ActivePane::TaskList => true,
             ActivePane::TaskEditor => !self.task_editor.is_in_insert_mode(),
         }
     }
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {
-        let task_before = self.task_list.get_current_task();
         match self.active_pane {
-            ActivePane::TaskList => match key_event.code {
-                KeyCode::Enter => {
-                    self.active_pane = ActivePane::TaskEditor;
-                    self.task_list.deactivate();
-                    self.task_editor.activate();
+            ActivePane::ViewList => {
+                match key_event.code {
+                    KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+                        self.active_pane = ActivePane::TaskList;
+                        self.view_list.deactivate();
+                        self.task_list.activate();
+                    }
+                    _ => self.view_list.handle_key_event(key_event),
                 }
-                _ => self.task_list.handle_key_event(key_event),
-            },
+                if self.view_list.view_changed {
+                    self.apply_current_view_filter();
+                    // Update task editor if task changed due to filtering
+                    if let Some(selected_task) = self.task_list.get_current_task() {
+                        self.task_editor.load_task(&selected_task);
+                    } else {
+                        // Clear task editor when no tasks match the current view
+                        self.task_editor.clear_all_fields();
+                    }
+                    self.view_list.view_changed = false;
+                }
+            }
+            ActivePane::TaskList => {
+                match key_event.code {
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.active_pane = ActivePane::ViewList;
+                        self.task_list.deactivate();
+                        self.view_list.activate();
+                    }
+                    // KeyCode::Right | KeyCode::Char('l') => {
+                    //     self.active_pane = ActivePane::TaskEditor;
+                    //     self.task_list.deactivate();
+                    //     self.task_editor.activate();
+                    // }
+                    KeyCode::Enter => {
+                        self.active_pane = ActivePane::TaskEditor;
+                        self.task_list.deactivate();
+                        self.task_editor.activate();
+                    }
+                    _ => self.task_list.handle_key_event(key_event),
+                }
+                self.update_task_editor_if_needed();
+            }
             ActivePane::TaskEditor => match key_event.code {
+                // KeyCode::Left | KeyCode::Char('h') => {
+                //     if self.task_editor.is_in_insert_mode() {
+                //         self.task_editor.handle_key_event(key_event);
+                //     } else {
+                //         self.active_pane = ActivePane::TaskList;
+                //         self.task_editor.deactivate();
+                //         self.task_list.activate();
+                //     }
+                // }
                 KeyCode::Esc => {
                     if self.task_editor.is_in_insert_mode() {
                         self.task_editor.handle_key_event(key_event);
@@ -91,15 +174,6 @@ impl NormalModeUI {
                 }
                 _ => self.task_editor.handle_key_event(key_event),
             },
-        }
-        if let Some(task_after) = self.task_list.get_current_task() {
-            if let Some(task_before) = task_before {
-                if task_before.get_id() != task_after.get_id() {
-                    self.task_editor.load_task(&task_after);
-                }
-            } else {
-                self.task_editor.load_task(&task_after);
-            }
         }
     }
 
@@ -113,15 +187,22 @@ impl NormalModeUI {
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))
             .render(f.area(), f.buffer_mut());
 
-        let main_area = centered_area(area, 40, 120);
+        // let main_area = centered_area(area, 40, 140);
+        let main_area = area;
 
         let chunks = Layout::new(
             Direction::Horizontal,
-            vec![Constraint::Percentage(50), Constraint::Percentage(50)],
+            // vec![Constraint::Percentage(40), Constraint::Percentage(60)],
+            [
+                Constraint::Fill(1),
+                Constraint::Fill(2),
+                Constraint::Fill(2),
+            ],
         )
         .split(main_area);
-        self.task_list.draw(f, chunks[0], last_frame);
-        self.task_editor.draw(f, chunks[1], last_frame);
+        self.view_list.draw(f, chunks[0], last_frame);
+        self.task_list.draw(f, chunks[1], last_frame);
+        self.task_editor.draw(f, chunks[2], last_frame);
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), main_area);

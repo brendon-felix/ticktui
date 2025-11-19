@@ -6,7 +6,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Modifier, Style},
-    widgets::{Block, Borders, Widget, WidgetRef, block::Position},
+    widgets::{Block, Widget, WidgetRef},
 };
 use std::fmt;
 use tui_textarea::{CursorMove, TextArea};
@@ -15,7 +15,7 @@ use actions::EditorPendingAction;
 
 use crate::ui::editor::{
     actions::{EditorAction, EditorActions},
-    helpers::{create_block, cursor_style},
+    helpers::{cursor_style, select_current_line, select_current_paragraph, select_current_word},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -62,52 +62,51 @@ impl fmt::Display for EditorMode {
     }
 }
 
-#[allow(dead_code)]
 pub struct EditorState {
     mode: EditorMode,
     pending_action: Option<EditorPendingAction>,
     yank_type: Option<TextObject>,
+    is_active: bool,
+    valid_state: Option<bool>,
 }
 
-#[allow(dead_code)]
+// pub enum EditorStyle {
+//     Normal,
+//     Valid,
+//     Invalid,
+// }
+
 pub struct Editor {
-    title: Option<String>,
+    // title: Option<String>,
     state: EditorState,
     textarea: TextArea<'static>,
     single_line: bool,
-    validator: Option<Box<dyn Fn(&TextArea) -> bool>>,
-    current_block: Option<Block<'static>>,
-    last_area_pos: Option<Position>,
+    validator: Option<Box<dyn Fn(&str) -> Option<bool>>>,
+    border_style_overridden: bool,
 }
 
-impl Default for Editor {
-    fn default() -> Self {
+impl Editor {
+    pub fn new() -> Self {
         let state = EditorState {
             mode: EditorMode::Normal,
             pending_action: None,
             yank_type: None,
+            is_active: true,
+            valid_state: None,
         };
         let mut textarea = TextArea::default();
         textarea.set_selection_style(Style::default().add_modifier(Modifier::REVERSED));
         // textarea.set_cursor_line_style(Style::default().bg(Color::Rgb(50, 50, 50)));
         textarea.set_cursor_line_style(Style::default());
-        Self {
-            title: None,
+        let mut editor = Self {
             state,
             textarea,
             single_line: false,
             validator: None,
-            current_block: None,
-            last_area_pos: None,
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl Editor {
-    pub fn with_title(mut self, title: &str) -> Self {
-        self.title = Some(title.to_string());
-        self
+            border_style_overridden: false,
+        };
+        editor.update_style();
+        editor
     }
 
     pub fn with_single_line(mut self) -> Self {
@@ -117,7 +116,7 @@ impl Editor {
 
     pub fn with_validator<F>(mut self, validator: F) -> Self
     where
-        F: 'static + Fn(&TextArea) -> bool,
+        F: 'static + Fn(&str) -> Option<bool>,
     {
         self.validator = Some(Box::new(validator));
         self
@@ -128,34 +127,13 @@ impl Editor {
         self
     }
 
-    pub fn with_placeholder(mut self, placeholder: &str) -> Self {
-        self.textarea.set_placeholder_text(placeholder);
-        self
-    }
-
-    pub fn with_input_mask(mut self) -> Self {
-        self.textarea.set_mask_char('*');
-        self
-    }
+    // pub fn with_placeholder(mut self, placeholder: &str) -> Self {
+    //     self.textarea.set_placeholder_text(placeholder);
+    //     self
+    // }
 
     pub fn with_block(mut self, block: Block<'static>) -> Self {
-        self.current_block = Some(block.clone());
         self.textarea.set_block(block);
-        self
-    }
-
-    pub fn with_cursor_line_style(mut self, style: Style) -> Self {
-        self.textarea.set_cursor_line_style(style);
-        self
-    }
-
-    pub fn with_style(mut self, style: Style) -> Self {
-        self.textarea.set_style(style);
-        self
-    }
-
-    pub fn with_cursor_style(mut self, style: Style) -> Self {
-        self.textarea.set_cursor_style(style);
         self
     }
 
@@ -164,7 +142,6 @@ impl Editor {
     }
 
     pub fn set_block(&mut self, block: Block<'static>) {
-        self.current_block = Some(block.clone());
         self.textarea.set_block(block);
     }
 
@@ -172,12 +149,24 @@ impl Editor {
         self.textarea.set_style(style);
     }
 
+    pub fn override_border_style(&mut self, style: Style) {
+        if let Some(mut block) = self.textarea.block().cloned() {
+            block = block.border_style(style);
+            self.textarea.set_block(block);
+            self.border_style_overridden = true;
+        }
+    }
+
+    pub fn clear_border_style_override(&mut self) {
+        self.border_style_overridden = false;
+    }
+
     pub fn set_cursor_style(&mut self, style: Style) {
         self.textarea.set_cursor_style(style);
     }
 
     pub fn set_cursor_line_style(&mut self, style: Style) {
-        self.textarea.set_cursor_style(style);
+        self.textarea.set_cursor_line_style(style);
     }
 
     pub fn set_desired_column(&mut self, col: usize) {
@@ -189,20 +178,36 @@ impl Editor {
         self
     }
 
-    pub fn set_style_active(&mut self) {
-        let is_active = true;
-        self.set_cursor_style(cursor_style(self.get_mode(), is_active));
-        self.set_style(Style::default());
-        let borders = Borders::ALL;
-        self.set_block(create_block(self.get_title(), is_active, borders))
+    pub fn set_active(&mut self, active: bool) {
+        self.state.is_active = active;
     }
 
-    pub fn set_style_inactive(&mut self) {
-        let is_active = false;
-        self.set_cursor_style(cursor_style(self.get_mode(), is_active));
-        self.set_style(Style::default().add_modifier(Modifier::DIM));
-        let borders = Borders::ALL;
-        self.set_block(create_block(self.get_title(), is_active, borders))
+    pub fn update_style(&mut self) {
+        self.set_cursor_style(cursor_style(self.get_mode(), self.state.is_active));
+        let style = if self.state.is_active {
+            self.textarea.style().remove_modifier(Modifier::DIM)
+        } else {
+            self.textarea.style().add_modifier(Modifier::DIM)
+        };
+        self.textarea.set_style(style);
+
+        if let Some(block) = self.textarea.block().cloned() {
+            let mut style = if let Some(valid_state) = self.state.valid_state {
+                if valid_state {
+                    // Style::default().fg(ratatui::style::Color::LightGreen)
+                    Style::default()
+                } else {
+                    Style::default().fg(ratatui::style::Color::LightRed)
+                }
+            } else {
+                Style::default()
+            };
+            if !self.state.is_active {
+                style = style.add_modifier(Modifier::DIM);
+            };
+            let block = block.border_style(style);
+            self.textarea.set_block(block);
+        }
     }
 
     pub fn insert_str(&mut self, s: String) {
@@ -211,10 +216,6 @@ impl Editor {
 
     pub fn is_single_line(&self) -> bool {
         self.single_line
-    }
-
-    pub fn get_title(&self) -> Option<String> {
-        self.title.clone()
     }
 
     pub fn get_mode(&self) -> EditorMode {
@@ -231,6 +232,14 @@ impl Editor {
 
     pub fn get_lines(&self) -> &[String] {
         self.textarea.lines()
+    }
+
+    pub fn clone_content(&self) -> String {
+        self.textarea.lines().join("\n")
+    }
+
+    pub fn get_validation_state(&self) -> Option<bool> {
+        self.state.valid_state
     }
 
     pub fn is_cursor_at_line_end(&self) -> bool {
@@ -256,52 +265,12 @@ impl Editor {
         let (row, _col) = self.textarea.cursor();
         row + 1 == self.textarea.lines().len()
     }
-}
 
-fn select_current_word(textarea: &mut TextArea, modifier: TextObjectModifier) -> (usize, usize) {
-    let (current_row, current_col) = textarea.cursor();
-    textarea.move_cursor(CursorMove::WordBack);
-    textarea.start_selection();
-    match modifier {
-        TextObjectModifier::Inner => {
-            textarea.move_cursor(CursorMove::WordEnd);
-            textarea.move_cursor(CursorMove::Right);
-        }
-        TextObjectModifier::Around => {
-            textarea.move_cursor(CursorMove::WordForward);
+    pub fn validate(&mut self) {
+        if let Some(validator) = &self.validator {
+            self.state.valid_state = validator(&self.textarea.lines()[0]);
         }
     }
-    (current_row, current_col)
-}
-fn select_current_line(textarea: &mut TextArea) -> (usize, usize) {
-    let (current_row, current_col) = textarea.cursor();
-    let total_lines = textarea.lines().len();
-
-    if current_row + 1 == total_lines && total_lines > 1 {
-        // Last line case: select from end of previous line to end of current line
-        textarea.move_cursor(CursorMove::Up);
-        textarea.move_cursor(CursorMove::End);
-        textarea.start_selection();
-        textarea.move_cursor(CursorMove::Down);
-        textarea.move_cursor(CursorMove::End);
-    } else {
-        // Normal case: select entire line including newline
-        textarea.move_cursor(CursorMove::Head);
-        textarea.start_selection();
-        let cursor = textarea.cursor();
-        textarea.move_cursor(CursorMove::Down);
-        if cursor == textarea.cursor() {
-            textarea.move_cursor(CursorMove::End); // At the last line, move to end of the line instead
-        }
-    }
-    (current_row, current_col)
-}
-fn select_current_paragraph(
-    textarea: &mut TextArea,
-    _modifier: TextObjectModifier,
-) -> (usize, usize) {
-    let (current_row, current_col) = textarea.cursor();
-    (current_row, current_col)
 }
 
 impl EditorActions for Editor {
@@ -313,6 +282,7 @@ impl EditorActions for Editor {
                 match mode {
                     EditorMode::Normal => {
                         self.textarea.cancel_selection();
+                        // self.validate();
                     }
                     EditorMode::Visual(vmode) => {
                         match vmode {
@@ -323,8 +293,7 @@ impl EditorActions for Editor {
                     EditorMode::Insert | EditorMode::Replace => {}
                 }
                 self.state.mode = mode;
-                self.textarea
-                    .set_cursor_style(cursor_style(self.state.mode, true));
+                // self.update_style();
             }
             EditorAction::MoveCursor(mvmt) => {
                 match mvmt {
@@ -362,12 +331,10 @@ impl EditorActions for Editor {
                     TextObject::WordInner => {
                         let _ = select_current_word(&mut self.textarea, TextObjectModifier::Inner);
                         self.textarea.cut();
-                        // self.textarea.move_cursor(CursorMove::Jump(current_row as u16, current_col as u16));
                     }
                     TextObject::WordAround => {
                         let _ = select_current_word(&mut self.textarea, TextObjectModifier::Around);
                         self.textarea.cut();
-                        // self.textarea.move_cursor(CursorMove::Jump(current_row as u16, current_col as u16));
                     }
                     TextObject::Line => {
                         let (current_row, current_col) = select_current_line(&mut self.textarea);
@@ -477,37 +444,6 @@ impl EditorActions for Editor {
         if !pending {
             self.state.pending_action = None;
         }
-        // match self.state.mode {
-        //     EditorMode::Normal => match input {
-        //         Input {
-        //             key: Key::Char('i'),
-        //             ..
-        //         } => {
-        //             self.state.mode = EditorMode::Insert;
-        //             self.textarea
-        //                 .set_cursor_style(cursor_style(self.state.mode, true));
-        //         }
-        //         _ => {}
-        //     },
-        //     EditorMode::Insert => match input {
-        //         Input { key: Key::Esc, .. } => {
-        //             self.state.mode = EditorMode::Normal;
-        //             self.textarea
-        //                 .set_cursor_style(cursor_style(self.state.mode, true));
-        //         }
-        //         input => {
-        //             self.textarea.input(input);
-        //         }
-        //     },
-        //     EditorMode::Visual(_) => match input {
-        //         Input { key: Key::Esc, .. } => {
-        //             self.state.mode = EditorMode::Normal;
-        //             self.textarea
-        //                 .set_cursor_style(cursor_style(self.state.mode, true));
-        //         }
-        //         _ => {}
-        //     },
-        // }
     }
     fn set_pending_action(&mut self, pending: Option<EditorPendingAction>) {
         self.state.pending_action = pending;
@@ -516,46 +452,6 @@ impl EditorActions for Editor {
         self.state.pending_action
     }
 }
-
-// impl AppWidget for Editor {
-//     fn set_widget_style(&mut self, style: WidgetStyle) {
-//         match style {
-//             WidgetStyle::Active => {
-//                 let is_active = true;
-//                 self.set_cursor_style(cursor_style(self.get_mode(), is_active));
-//                 self.set_style(Style::default());
-//                 let borders = Borders::ALL;
-//                 self.set_block(create_block(self.get_title(), is_active, borders))
-//             }
-//             WidgetStyle::Inactive => {
-//                 let is_active = false;
-//                 self.set_cursor_style(cursor_style(self.get_mode(), is_active));
-//                 self.set_style(Style::default().add_modifier(Modifier::DIM));
-//                 let borders = Borders::ALL;
-//                 self.set_block(create_block(self.get_title(), is_active, borders))
-//             }
-//         }
-//     }
-
-//     fn on_click(&mut self, pos: Position) {
-//         if let Some(area_pos) = self.last_area_pos {
-//             let local = Position::new(
-//                 pos.x.saturating_sub(area_pos.x),
-//                 pos.y.saturating_sub(area_pos.y),
-//             );
-//             let (x, y) = if let Some(_block) = &self.current_block {
-//                 (local.x.saturating_sub(1), local.y.saturating_sub(1))
-//             } else {
-//                 local.into()
-//             };
-//             self.textarea.move_cursor(CursorMove::Jump(y, x));
-//         }
-//     }
-
-//     fn set_last_area_pos(&mut self, area_pos: Position) {
-//         self.last_area_pos = Some(area_pos);
-//     }
-// }
 
 impl Widget for Editor {
     fn render(self, area: Rect, buf: &mut Buffer) {

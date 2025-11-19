@@ -1,9 +1,12 @@
+use ratatui::layout::Rect;
+
 // #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct MultiSelectListState {
-    pub(crate) offset: usize,
-    pub(crate) selected: Option<usize>,
-    pub(crate) visual_start: Option<usize>,
+    pub offset: usize,
+    pub selected: Option<usize>,
+    pub visual_start: Option<usize>,
+    pub last_items_area: Option<Rect>,
 }
 
 impl MultiSelectListState {

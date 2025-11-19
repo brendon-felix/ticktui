@@ -1,8 +1,7 @@
-use ratatui::{
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders},
-};
-use tui_textarea::{CursorMove, Input, Key};
+use ratatui::style::{Color, Modifier, Style};
+use tui_textarea::{CursorMove, Input, Key, TextArea};
+
+use crate::ui::editor::TextObjectModifier;
 
 use super::EditorMode;
 
@@ -148,31 +147,86 @@ pub fn cursor_style(mode: EditorMode, is_active: bool) -> Style {
     Style::default().fg(color).add_modifier(Modifier::REVERSED)
 }
 
-pub fn create_block<'a>(
-    title: Option<String>,
-    is_active: bool,
-    borders: Borders,
-    // is_valid: Option<bool>
-) -> Block<'a> {
-    let mut style = Style::default();
-    if !is_active {
-        style = style.add_modifier(Modifier::DIM);
+// pub fn create_block<'a>(
+//     title: Option<&'a str>,
+//     is_active: bool,
+//     is_valid: Option<bool>,
+// ) -> Block<'a> {
+//     let mut style = Style::default();
+//     if let Some(valid) = is_valid {
+//         if valid {
+//             style = style.fg(Color::LightGreen);
+//         } else {
+//             style = style.fg(Color::LightRed);
+//         }
+//     }
+//     if !is_active {
+//         style = style.add_modifier(Modifier::DIM);
+//     }
+
+//     let mut border_style = style;
+//     if !is_active {
+//         border_style = border_style.add_modifier(Modifier::DIM);
+//     }
+
+//     let mut block = Block::default()
+//         // .style(style)
+//         .borders(Borders::ALL)
+//         // .border_set(BorderType::Rounded.to_border_set())
+//         .border_style(border_style);
+
+//     if let Some(t) = title {
+//         block = block.title(t);
+//     }
+
+//     block
+// }
+
+pub fn select_current_word(
+    textarea: &mut TextArea,
+    modifier: TextObjectModifier,
+) -> (usize, usize) {
+    let (current_row, current_col) = textarea.cursor();
+    textarea.move_cursor(CursorMove::WordBack);
+    textarea.start_selection();
+    match modifier {
+        TextObjectModifier::Inner => {
+            textarea.move_cursor(CursorMove::WordEnd);
+            textarea.move_cursor(CursorMove::Right);
+        }
+        TextObjectModifier::Around => {
+            textarea.move_cursor(CursorMove::WordForward);
+        }
     }
+    (current_row, current_col)
+}
+pub fn select_current_line(textarea: &mut TextArea) -> (usize, usize) {
+    let (current_row, current_col) = textarea.cursor();
+    let total_lines = textarea.lines().len();
 
-    let mut border_style = Style::default();
-    if !is_active {
-        border_style = border_style.add_modifier(Modifier::DIM);
+    if current_row + 1 == total_lines && total_lines > 1 {
+        // Last line case: select from end of previous line to end of current line
+        textarea.move_cursor(CursorMove::Up);
+        textarea.move_cursor(CursorMove::End);
+        textarea.start_selection();
+        textarea.move_cursor(CursorMove::Down);
+        textarea.move_cursor(CursorMove::End);
+    } else {
+        // Normal case: select entire line including newline
+        textarea.move_cursor(CursorMove::Head);
+        textarea.start_selection();
+        let cursor = textarea.cursor();
+        textarea.move_cursor(CursorMove::Down);
+        if cursor == textarea.cursor() {
+            textarea.move_cursor(CursorMove::End); // At the last line, move to end of the line instead
+        }
     }
-
-    let mut block = Block::default()
-        .style(style)
-        .borders(borders)
-        // .border_set(BorderType::Rounded.to_border_set())
-        .border_style(border_style);
-
-    if let Some(t) = title {
-        block = block.title(t);
-    }
-
-    block
+    (current_row, current_col)
+}
+pub fn select_current_paragraph(
+    textarea: &mut TextArea,
+    _modifier: TextObjectModifier,
+) -> (usize, usize) {
+    let (current_row, current_col) = textarea.cursor();
+    (current_row, current_col)
 }

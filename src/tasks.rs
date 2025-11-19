@@ -145,26 +145,52 @@ pub fn is_due_today(now: DateTime<Local>, task: &Task) -> bool {
     task.due_date >= today_start && task.due_date <= today_end
 }
 
-// pub fn is_due_this_week(task: &Task) -> bool {
-//     let now = Local::now();
-//     let today_end = now
-//         .date_naive()
-//         .and_hms_opt(23, 59, 59)
-//         .unwrap()
-//         .and_local_timezone(Local)
-//         .unwrap()
-//         .with_timezone(&chrono::Utc);
+pub fn is_due_tomorrow(now: DateTime<Local>, task: &Task) -> bool {
+    let tomorrow_start = (now + chrono::Duration::days(1))
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
 
-//     let week_end = (now + chrono::Duration::days(7))
-//         .date_naive()
-//         .and_hms_opt(23, 59, 59)
-//         .unwrap()
-//         .and_local_timezone(Local)
-//         .unwrap()
-//         .with_timezone(&chrono::Utc);
+    let tomorrow_end = (now + chrono::Duration::days(1))
+        .date_naive()
+        .and_hms_opt(23, 59, 59)
+        .unwrap()
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
 
-//     task.due_date.timestamp() > 0 && task.due_date >= today_end && task.due_date <= week_end
-// }
+    task.due_date.timestamp() > 0
+        && task.due_date >= tomorrow_start
+        && task.due_date <= tomorrow_end
+}
+
+pub fn is_due_this_week(now: DateTime<Local>, task: &Task) -> bool {
+    let today_end = now
+        .date_naive()
+        .and_hms_opt(23, 59, 59)
+        .unwrap()
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+
+    let week_end = (now + chrono::Duration::days(7))
+        .date_naive()
+        .and_hms_opt(23, 59, 59)
+        .unwrap()
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+
+    task.due_date.timestamp() > 0 && task.due_date >= today_end && task.due_date <= week_end
+}
+
+pub fn is_in_inbox(task: &Task) -> bool {
+    task.project_id.0.starts_with("inbox")
+    // true
+}
 
 // pub fn is_in_project(task: &Task, project_id: &ProjectID) -> bool {
 //     &task.project_id.0 == &project_id.0

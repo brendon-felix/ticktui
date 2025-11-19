@@ -3,14 +3,15 @@ use std::time::Instant;
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
-    layout::{Constraint, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
     widgets::{Block, Borders},
 };
 use tachyonfx::{
     EffectManager, EffectTimer, Interpolation,
     fx::{self},
 };
-use ticks::tasks::Task;
+use ticks::tasks::{Task, TaskPriority};
 use tui_textarea::Input;
 
 use crate::ui::{
@@ -20,6 +21,7 @@ use crate::ui::{
         actions::{EditorAction, EditorActions},
         handlers,
     },
+    utils,
 };
 
 // const SAMPLE_DESCRIPTION: &str = r#"This is a description.
@@ -29,29 +31,90 @@ use crate::ui::{
 // This is another paragraph to demonstrate the editor functionality.
 // Next we have a line that is really long ..."#;
 
+fn validate_duedate(input: &str) -> Option<bool> {
+    if input.trim().is_empty() {
+        None
+    } else {
+        Some(utils::parse_datetime(input).is_ok())
+    }
+}
+
+fn parse_priority(input: &str) -> Option<TaskPriority> {
+    match input.trim().to_uppercase().as_str() {
+        "1" | "p1" | "P1" => Some(TaskPriority::High),
+        "2" | "p2" | "P2" => Some(TaskPriority::Medium),
+        "3" | "p3" | "P3" => Some(TaskPriority::Low),
+        "" => Some(TaskPriority::None),
+        _ => None,
+    }
+}
+
+fn validate_priority(input: &str) -> Option<bool> {
+    if input.trim().is_empty() {
+        None
+    } else {
+        Some(parse_priority(input).is_some())
+    }
+}
+
+fn splits_fn(area: Rect) -> Vec<Rect> {
+    let primary_splits = Layout::new(
+        Direction::Vertical,
+        [
+            Constraint::Length(3),
+            Constraint::Length(3),
+            Constraint::Min(3),
+        ],
+    )
+    .split(area);
+    let due_date_priority_split = Layout::new(
+        Direction::Horizontal,
+        [Constraint::Percentage(70), Constraint::Percentage(30)],
+    )
+    .split(primary_splits[1]);
+    vec![
+        primary_splits[0],
+        due_date_priority_split[0],
+        due_date_priority_split[1],
+        primary_splits[2],
+    ]
+}
+
+fn new_block(title: &'static str) -> Block<'static> {
+    Block::new().borders(Borders::ALL).title(title)
+}
+
 pub struct TaskEditor {
     editor: CompositeEditor,
     editor_state: CompositeEditorState,
+    unsaved_changes: bool,
     effects: EffectManager<()>,
 }
 
 impl TaskEditor {
     pub fn new() -> Self {
         let editors = vec![
-            Editor::default().with_single_line().with_title("Title"),
-            Editor::default().with_single_line().with_title("Date"),
-            // .with_validator(validator),
-            Editor::default().with_single_line().with_title("Time"),
-            // .with_validator(validator),
-            Editor::default().with_title("Description"),
+            Editor::new()
+                .with_single_line()
+                .with_block(new_block("Title")),
+            Editor::new()
+                .with_single_line()
+                .with_block(new_block("Due"))
+                .with_validator(validate_duedate),
+            Editor::new()
+                .with_single_line()
+                .with_block(new_block("Priority"))
+                .with_validator(validate_priority),
+            Editor::new().with_block(new_block("Description")),
         ];
-        let editor_state = CompositeEditorState::new(editors.len());
-        let editor = CompositeEditor::new(editors).with_constraints(vec![
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Min(3),
-        ]);
+        let editor_state = CompositeEditorState::new(editors.len(), Box::new(splits_fn));
+        // let editor = CompositeEditor::new(editors).with_constraints(vec![
+        //     Constraint::Length(3),
+        //     Constraint::Length(3),
+        //     Constraint::Length(3),
+        //     Constraint::Min(3),
+        // ]);
+        let editor = CompositeEditor::new(editors);
         let effects: EffectManager<()> = EffectManager::default();
         // let c = Color::Rgb(25, 25, 25);
         // let timer = EffectTimer::from_ms(20000, Interpolation::ElasticOut);
@@ -60,6 +123,7 @@ impl TaskEditor {
         Self {
             editor,
             editor_state,
+            unsaved_changes: false,
             effects,
         }
     }
@@ -86,36 +150,55 @@ impl TaskEditor {
         self.editor.editors[1].set_content(due_date);
     }
 
-    pub fn set_due_time_content(&mut self, due_date: &str) {
+    pub fn set_priority_content(&mut self, due_date: &str) {
         self.editor.editors[2].set_content(due_date);
+    }
+
+    pub fn set_priority_color(&mut self, color: Color) {
+        self.editor.editors[2].set_style(Style::default().fg(color));
+        self.editor.editors[2].override_border_style(Style::default().fg(color));
     }
 
     pub fn set_description_content(&mut self, title: &str) {
         self.editor.editors[3].set_content(title);
     }
 
+    pub fn clear_all_fields(&mut self) {
+        self.set_title_content("");
+        self.set_due_date_content("");
+        self.set_priority_content("");
+        self.set_description_content("");
+        // Reset priority color to default
+        self.editor.editors[2].set_style(Style::default());
+        self.editor.editors[2].override_border_style(Style::default());
+    }
+
     pub fn load_task(&mut self, task: &Task) {
         self.set_title_content(&task.title);
         if task.due_date.timestamp() > 0 {
-            let due_date_str = task
-                .due_date
-                .with_timezone(&chrono::Local)
-                .format("%m/%d/%Y")
-                .to_string();
+            let due_date_str = utils::format_datetime(task.due_date, task.is_all_day);
             self.set_due_date_content(&due_date_str);
-            if !task.is_all_day {
-                let due_time_str = task
-                    .due_date
-                    .with_timezone(&chrono::Local)
-                    .format("%I:%M %p")
-                    .to_string();
-                self.set_due_time_content(&due_time_str);
-            } else {
-                self.set_due_time_content("");
-            }
         } else {
             self.set_due_date_content("");
-            self.set_due_time_content("");
+        }
+        match task.priority {
+            TaskPriority::High => {
+                self.set_priority_content("P1");
+                self.set_priority_color(Color::LightRed);
+            }
+            TaskPriority::Medium => {
+                self.set_priority_content("P2");
+                self.set_priority_color(Color::LightYellow);
+            }
+            TaskPriority::Low => {
+                self.set_priority_content("P3");
+                self.set_priority_color(Color::LightBlue);
+            }
+            TaskPriority::None => {
+                self.set_priority_content("");
+                self.editor.editors[2].set_style(Style::default());
+                self.editor.editors[2].override_border_style(Style::default());
+            }
         }
         self.set_description_content(&task.content);
         self.editor_state
@@ -130,6 +213,10 @@ impl TaskEditor {
             })
             .for_each(|fx| self.effects.add_effect(fx));
     }
+
+    // pub fn has_unsaved_changes(&self) -> bool {
+    //     self.unsaved_changes
+    // }
 
     pub fn is_in_insert_mode(&self) -> bool {
         if let Some(mode) = self.editor.get_mode() {
@@ -172,6 +259,9 @@ impl TaskEditor {
             };
             match action_opt {
                 Some(action) => match action {
+                    EditorAction::SetMode(EditorMode::Normal) if self.unsaved_changes => {
+                        self.submit_field();
+                    }
                     EditorAction::Submit => self.submit_field(),
                     _ => self.editor.execute_action(action),
                 },
@@ -180,18 +270,47 @@ impl TaskEditor {
         }
     }
 
+    // pub fn validate_active(&mut self) -> bool {
+    //     if let Some((editor, _)) = self.editor.get_active_editor() {
+    //         editor.validate()
+    //     } else {
+    //         true
+    //     }
+    // }
+
     pub fn submit_field(&mut self) {
-        let mode_before = self.editor.get_mode();
-        if !self.editor.is_last_editor_active() {
-            self.editor.set_active_editor_next();
-            if let Some(mode) = mode_before {
-                self.editor.set_mode(mode);
+        // if !self.editor.is_last_editor_active() {
+        //     self.editor.set_active_editor_next();
+        //     if let Some(mode) = mode_before {
+        //         self.editor.set_mode(mode);
+        //     }
+        // }
+
+        if let Some((editor, _)) = self.editor.get_active_editor() {
+            let mode_before = editor.get_mode();
+            // editor.validate();
+            editor.update_style();
+            if !self.editor.is_last_editor_active() {
+                self.editor.set_active_editor_next();
+                self.editor.set_mode(mode_before);
             }
         }
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
+        if let Some((editor, _)) = self.editor.get_active_editor() {
+            editor.validate();
+            editor.update_style();
+        }
+        // let areas = Layout::new(
+        //     Direction::Horizontal,
+        //     [Constraint::Fill(2), Constraint::Fill(1)],
+        // )
+        // .split(area);
+
         f.render_stateful_widget(&mut self.editor, area, &mut self.editor_state);
+        // f.render_widget(Block::new().borders(Borders::ALL), areas[1]);
+
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), area);

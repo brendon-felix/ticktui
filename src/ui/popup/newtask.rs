@@ -33,11 +33,10 @@ impl NewTaskPopup {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn with_block(mut self, block: Block<'static>) -> Self {
-        self.block = block;
-        self
-    }
+    // pub fn with_block(mut self, block: Block<'static>) -> Self {
+    //     self.block = block;
+    //     self
+    // }
 }
 
 impl Popup for NewTaskPopup {
@@ -60,7 +59,9 @@ impl Popup for NewTaskPopup {
                     let _ = self.tx.send(AppAction::ClosePopup);
                 }
             }
-            KeyCode::Enter if !self.editor.is_in_insert_mode() && !self.is_active => {
+            KeyCode::Enter if !self.is_active => {
+                self.editor.activate();
+                self.is_active = true;
                 // if let Some(new_task) = self.editor.build_task() {
                 //     let _ = self.tx.send(AppAction::TaskAction(
                 //         new_task.project_id,
@@ -70,7 +71,7 @@ impl Popup for NewTaskPopup {
                 //     let _ = self.tx.send(AppAction::ClosePopup);
                 // }
 
-                let _ = self.tx.send(AppAction::ClosePopup);
+                // let _ = self.tx.send(AppAction::ClosePopup);
             }
             _ => self.editor.handle_key_event(key_event),
         }
@@ -102,7 +103,14 @@ impl Popup for NewTaskPopup {
             .style(Style::default().fg(Color::Green))
             .centered();
         f.render_widget(p, areas[0]);
-        self.editor.draw(f, areas[1], last_frame);
+
+        let content = Layout::new(
+            Direction::Horizontal,
+            [Constraint::Fill(3), Constraint::Fill(1)],
+        )
+        .split(areas[1]);
+
+        self.editor.draw(f, content[0], last_frame);
 
         // f.render_widget(&self.content, areas[0]);
         // f.render_widget(self.help_text(), areas[1]);

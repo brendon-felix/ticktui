@@ -36,11 +36,10 @@ impl ConfirmationPopup {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn with_block(mut self, block: Block<'static>) -> Self {
-        self.block = block;
-        self
-    }
+    // pub fn with_block(mut self, block: Block<'static>) -> Self {
+    //     self.block = block;
+    //     self
+    // }
 
     pub fn help_text(&self) -> Paragraph<'static> {
         let help_content = Text::from("Press Y to confirm, N or Esc to cancel.");

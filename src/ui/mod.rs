@@ -12,6 +12,7 @@ pub mod popup;
 mod taskeditor;
 mod tasklist;
 mod utils;
+mod views;
 
 use focusmode::FocusModeUI;
 use normalmode::NormalModeUI;
@@ -21,9 +22,13 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    ui::popup::{Popup, confirm::ConfirmationPopup, newtask::NewTaskPopup},
+    ui::{
+        popup::{Popup, confirm::ConfirmationPopup, newtask::NewTaskPopup},
+        views::View,
+    },
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum AppUIMode {
     Focus,
     Normal,
@@ -48,6 +53,11 @@ impl AppUI {
         }
     }
 
+    pub fn reset_areas(&mut self) {
+        self.focus_ui.reset_areas();
+        // self.normal_ui.reset_areas();
+    }
+
     pub fn confirm(&mut self, pending_action: AppAction) {
         let popup = ConfirmationPopup::new(
             Paragraph::new(Text::from("Are you sure?")).centered(),
@@ -66,10 +76,20 @@ impl AppUI {
         self.popup = None;
     }
 
-    pub fn update_tasks(&mut self, tasks: Vec<Arc<Task>>) {
-        self.focus_ui.update_tasks(tasks.clone());
+    pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
+        self.focus_ui.update_tasks(Arc::clone(&tasks));
         self.normal_ui.update_tasks(tasks);
     }
+
+    // pub fn apply_view_filter(&mut self, view: &crate::ui::views::View) {
+    //     match self.mode {
+    //         AppUIMode::Focus => self.focus_ui.filter_by_view(view),
+    //         AppUIMode::Normal => {
+    //             // The normal mode will handle view filtering internally
+    //             // when the view list selection changes
+    //         }
+    //     }
+    // }
 
     pub fn allow_quit(&self) -> bool {
         match &self.popup {
@@ -86,8 +106,19 @@ impl AppUI {
         match &mut self.popup {
             Some(popup) => popup.handle_key_event(key_event),
             None => match key_event.code {
-                KeyCode::F(1) => self.mode = AppUIMode::Focus,
-                KeyCode::F(2) => self.mode = AppUIMode::Normal,
+                KeyCode::Char('f') if self.mode == AppUIMode::Normal => {
+                    let view = self
+                        .normal_ui
+                        .get_current_view()
+                        .cloned()
+                        .unwrap_or(View::Inbox);
+                    self.mode = AppUIMode::Focus;
+                    self.focus_ui.set_view(view);
+                }
+                KeyCode::Esc if self.mode == AppUIMode::Focus && self.allow_quit() => {
+                    self.mode = AppUIMode::Normal
+                }
+                // KeyCode::F(2) => self.mode = AppUIMode::Normal,
                 KeyCode::Char('n') if self.allow_quit() => self.start_new_task(),
                 _ => match self.mode {
                     AppUIMode::Focus => self.focus_ui.handle_key_event(key_event),
