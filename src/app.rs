@@ -148,6 +148,13 @@ impl App {
                     tx.send(AppAction::Quit)?;
                 }
             }
+            KeyCode::Char('r') => {
+                if !self.ui.allow_quit() {
+                    self.ui.handle_key_event(key_event);
+                } else {
+                    tx.send(AppAction::RefreshData)?;
+                }
+            }
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 tx.send(AppAction::Quit)?
             }
