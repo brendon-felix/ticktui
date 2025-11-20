@@ -1,0 +1,6 @@
+[submodule "crates/tui-textarea"]
+	path = crates/tui-textarea
+	url = https://github.com/brendon-felix/tui-textarea.git
+[submodule "crates/ticks"]
+	path = crates/ticks
+	url = https://github.com/brendon-felix/ticks.git
