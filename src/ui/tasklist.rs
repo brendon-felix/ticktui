@@ -9,7 +9,7 @@ use ratatui::{
 };
 use std::{sync::Arc, time::Instant};
 use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
-use ticks::tasks::{Task, TaskID};
+use ticks::tasks::{Task, TaskID, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -389,38 +389,36 @@ impl TaskList {
 
 fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
     let line1 = Line::from("");
-    let line2 = Line::from(Span::from(task.title.clone()).style(Style::default()));
-    // let line3 = {
-    //     let mut line = Line::from(datetime_str);
-    //     if is_overdue(now, task) {
-    //         line = line.style(Style::default().fg(Color::Red).dim());
-    //     } else {
-    //         line = line.style(Style::default().dim());
-    //     }
-    //     line
-    // };
+    let mut spans = vec![Span::from(task.title.clone()).style(Style::default())];
+    if let Some(priority_syle) = match task.priority {
+        TaskPriority::High => Style::default().fg(Color::Red).into(),
+        TaskPriority::Medium => Style::default().fg(Color::Yellow).into(),
+        TaskPriority::Low => Style::default().fg(Color::Blue).into(),
+        TaskPriority::None => None,
+    } {
+        let priority_symbol = Span::from("● ").style(priority_syle);
+        spans.insert(0, priority_symbol);
+    }
+    let line2 = Line::from(spans);
     let line3 = Line::from("");
     MultiSelectListItem::new(vec![line1, line2, line3])
 }
 
 fn create_list_right_item(now: DateTime<Local>, task: &Arc<Task>) -> MultiSelectListItem<'static> {
     let line1 = Line::from("");
-    let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
-    // let mut line2 = Line::from(datetime_str).right_aligned();
-    let mut span = Span::from(datetime_str);
-    if is_overdue(now, task) {
-        span = span.style(Style::default().fg(Color::Red).dim());
+    let line2 = if task.due_date.timestamp() > 0 {
+        let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+        // let mut line2 = Line::from(datetime_str).right_aligned();
+        let mut span = Span::from(datetime_str);
+        if is_overdue(now, task) {
+            span = span.style(Style::default().fg(Color::Red).dim());
+        } else {
+            span = span.style(Style::default().dim());
+        }
+        Line::from(vec![span, Span::from(" ")]).right_aligned()
     } else {
-        span = span.style(Style::default().dim());
-    }
-    let line2 = Line::from(vec![span, Span::from(" ")]).right_aligned();
+        Line::from(" ").right_aligned()
+    };
     let line3 = Line::from("");
     MultiSelectListItem::new(vec![line1, line2, line3])
 }
-
-// fn create_new_item() -> MultiSelectListItem<'static> {
-//     let line1 = Line::from("");
-//     let line2 = Line::from("New Task");
-//     let line3 = Line::from("");
-//     MultiSelectListItem::new(vec![line1, line2, line3])
-// }
