@@ -318,7 +318,7 @@ impl EditorActions for Editor {
                         _ => {}
                     }
                 }
-                let _ = self.textarea.input(input);
+                let _ = self.textarea.input_without_shortcuts(input);
             }
             EditorAction::Delete(obj) => {
                 self.state.yank_type = Some(obj);

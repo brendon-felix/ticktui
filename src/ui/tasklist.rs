@@ -1,11 +1,11 @@
-use chrono::Local;
+use chrono::{DateTime, Local};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
     style::{Color, Modifier, Style, Stylize},
-    text::Line,
-    widgets::{Block, Paragraph},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, Paragraph},
 };
 use std::{sync::Arc, time::Instant};
 use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
@@ -26,7 +26,8 @@ pub struct TaskList {
     all_tasks: Arc<Vec<Arc<Task>>>,
     shown_tasks: Vec<TaskID>,
     // filtered_indices: Vec<usize>,
-    list: MultiSelectList<'static>,
+    list_left: MultiSelectList<'static>,
+    list_right: MultiSelectList<'static>,
     list_state: MultiSelectListState,
     style: Style,
     current_block: Option<Block<'static>>,
@@ -42,10 +43,18 @@ impl TaskList {
         // let filtered_indices = (0..tasks.len()).collect();
         let list_state = MultiSelectListState::default();
         let current_block = Block::default()
-            .title("Tasks")
-            // .border_set(BorderType::Rounded.to_border_set())
-            .borders(ratatui::widgets::Borders::ALL);
-        let list = MultiSelectList::default()
+            // .title("Tasks")
+            .border_set(BorderType::Rounded.to_border_set())
+            .borders(Borders::ALL);
+        let list_left = MultiSelectList::default()
+            .with_block(current_block.clone())
+            .with_highlight_symbol(" ")
+            .with_highlight_style(
+                Style::new()
+                    .bg(Color::Rgb(30, 30, 30))
+                    .add_modifier(Modifier::BOLD),
+            );
+        let list_right = MultiSelectList::default()
             .with_block(current_block.clone())
             .with_highlight_symbol(" ")
             .with_highlight_style(
@@ -59,7 +68,8 @@ impl TaskList {
             shown_tasks: vec![],
             // filtered_indices,
             list_state,
-            list,
+            list_left,
+            list_right,
             style: Style::default(),
             current_block: Some(current_block),
             tasks_loaded: false,
@@ -78,9 +88,9 @@ impl TaskList {
         }
         self.current_block = Some(
             Block::default()
-                .title("Tasks")
-                // .border_set(BorderType::Rounded.to_border_set())
-                .borders(ratatui::widgets::Borders::ALL),
+                // .title("Tasks")
+                .border_set(BorderType::Rounded.to_border_set())
+                .borders(Borders::ALL),
         );
         self.style = Style::default();
     }
@@ -88,9 +98,9 @@ impl TaskList {
     pub fn deactivate(&mut self) {
         self.current_block = Some(
             Block::default()
-                .title("Tasks")
-                .borders(ratatui::widgets::Borders::ALL)
-                // .border_set(BorderType::Rounded.to_border_set())
+                // .title("Tasks")
+                .borders(Borders::ALL)
+                .border_set(BorderType::Rounded.to_border_set())
                 .style(Style::default().add_modifier(Modifier::DIM)),
         );
         self.style = Style::default().add_modifier(Modifier::DIM);
@@ -103,6 +113,26 @@ impl TaskList {
     pub fn clear_selection(&mut self) {
         self.list_state.select(None);
     }
+
+    // pub fn insert_new_task(&mut self) {
+    //     let mut items: Vec<MultiSelectListItem> = self
+    //         .shown_tasks
+    //         .iter()
+    //         .filter_map(|task_id| {
+    //             self.all_tasks.iter().find_map(|task| {
+    //                 if task.get_id() == task_id {
+    //                     Some(create_list_item(task))
+    //                 } else {
+    //                     None
+    //                 }
+    //             })
+    //         })
+    //         .collect();
+    //     items.insert(0, create_new_item());
+    //     self.shown_tasks.insert(0, TaskID("".to_string()));
+    //     self.list.set_items(items);
+    //     self.list_state.select(Some(0));
+    // }
 
     pub fn set_all_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
         self.all_tasks = tasks;
@@ -133,27 +163,42 @@ impl TaskList {
         //     let fx = sweep_in(Motion::UpToDown, 5, 0, c, timer).with_area(area);
         //     self.effects.add_effect(fx);
         // }
-        let items: Vec<MultiSelectListItem> = self
+        let left_items: Vec<MultiSelectListItem> = self
             .shown_tasks
             .iter()
             .filter_map(|task_id| {
                 self.all_tasks.iter().find_map(|task| {
                     if task.get_id() == task_id {
-                        Some(create_list_item(task))
+                        Some(create_list_left_item(task))
                     } else {
                         None
                     }
                 })
             })
             .collect();
-        self.list.set_items(items);
+        self.list_left.set_items(left_items);
+        let now = chrono::Local::now();
+        let right_items: Vec<MultiSelectListItem> = self
+            .shown_tasks
+            .iter()
+            .filter_map(|task_id| {
+                self.all_tasks.iter().find_map(|task| {
+                    if task.get_id() == task_id {
+                        Some(create_list_right_item(now, task))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        self.list_right.set_items(right_items);
         if let Some(area) = self.last_area {
             let area = if let Some(block) = self.current_block.clone() {
                 block.inner(area)
             } else {
                 area
             };
-            if let Some(effect_area) = self.list.calculate_effect_area(area) {
+            if let Some(effect_area) = self.list_left.calculate_effect_area(area) {
                 let timer = EffectTimer::from_ms(200, Interpolation::Linear);
                 // let fx = fx::coalesce(timer);
                 let c = Color::Rgb(25, 25, 25);
@@ -280,9 +325,9 @@ impl TaskList {
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
         if self.shown_tasks.len() == 0 {
             let msg = if !self.tasks_loaded {
-                "Loading tasks..."
+                "\nLoading tasks..."
             } else {
-                "No tasks available"
+                "\nNo tasks available"
             };
             let mut p = Paragraph::new(msg)
                 .style(self.style)
@@ -330,9 +375,11 @@ impl TaskList {
         // }
         // let effect_area = task_list.calculate_effect_area(area);
         if let Some(block) = self.current_block.clone() {
-            self.list.set_block(block);
+            self.list_left.set_block(block.clone());
+            self.list_right.set_block(block);
         }
-        f.render_stateful_widget(&self.list, area, &mut self.list_state);
+        f.render_stateful_widget(&self.list_right, area, &mut self.list_state);
+        f.render_stateful_widget(&self.list_left, area, &mut self.list_state);
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), area);
@@ -340,19 +387,40 @@ impl TaskList {
     }
 }
 
-fn create_list_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
-    let now = chrono::Local::now();
+fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
     let line1 = Line::from("");
-    let line2 = Line::from(task.title.clone());
-    let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
-    let line3 = {
-        let mut line = Line::from(datetime_str);
-        if is_overdue(now, task) {
-            line = line.style(Style::default().fg(Color::Red).dim());
-        } else {
-            line = line.style(Style::default().dim());
-        }
-        line
-    };
+    let line2 = Line::from(Span::from(task.title.clone()).style(Style::default()));
+    // let line3 = {
+    //     let mut line = Line::from(datetime_str);
+    //     if is_overdue(now, task) {
+    //         line = line.style(Style::default().fg(Color::Red).dim());
+    //     } else {
+    //         line = line.style(Style::default().dim());
+    //     }
+    //     line
+    // };
+    let line3 = Line::from("");
     MultiSelectListItem::new(vec![line1, line2, line3])
 }
+
+fn create_list_right_item(now: DateTime<Local>, task: &Arc<Task>) -> MultiSelectListItem<'static> {
+    let line1 = Line::from("");
+    let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+    // let mut line2 = Line::from(datetime_str).right_aligned();
+    let mut span = Span::from(datetime_str);
+    if is_overdue(now, task) {
+        span = span.style(Style::default().fg(Color::Red).dim());
+    } else {
+        span = span.style(Style::default().dim());
+    }
+    let line2 = Line::from(vec![span, Span::from(" ")]).right_aligned();
+    let line3 = Line::from("");
+    MultiSelectListItem::new(vec![line1, line2, line3])
+}
+
+// fn create_new_item() -> MultiSelectListItem<'static> {
+//     let line1 = Line::from("");
+//     let line2 = Line::from("New Task");
+//     let line3 = Line::from("");
+//     MultiSelectListItem::new(vec![line1, line2, line3])
+// }

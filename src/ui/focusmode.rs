@@ -447,33 +447,34 @@ impl FocusModeUI {
         Block::default()
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))
             .render(f.area(), f.buffer_mut());
-        let main_chunks = Layout::new(
-            Direction::Vertical,
-            [Constraint::Length(3), Constraint::Fill(1)],
-        )
-        .split(area);
 
-        if let Some(view) = self.current_view.as_ref() {
-            let header_area = Layout::new(
-                Direction::Horizontal,
-                [
-                    Constraint::Fill(1),
-                    Constraint::Length(20),
-                    Constraint::Fill(1),
-                ],
-            )
-            .split(main_chunks[0])[1];
+        // let main_chunks = Layout::new(
+        //     Direction::Vertical,
+        //     [Constraint::Length(3), Constraint::Fill(1)],
+        // )
+        // .split(area);
 
-            let p = Paragraph::new(format!("\n{}\n", view.get_name()))
-                .style(Style::default().fg(Color::LightYellow))
-                // .block(
-                //     Block::new()
-                //         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-                //         .border_type(BorderType::Rounded),
-                // )
-                .alignment(ratatui::layout::Alignment::Center);
-            f.render_widget(p, header_area);
-        }
+        // if let Some(view) = self.current_view.as_ref() {
+        //     let header_area = Layout::new(
+        //         Direction::Horizontal,
+        //         [
+        //             Constraint::Fill(1),
+        //             Constraint::Length(20),
+        //             Constraint::Fill(1),
+        //         ],
+        //     )
+        //     .split(main_chunks[0])[1];
+
+        //     let p = Paragraph::new(format!("\n{}\n", view.get_name()))
+        //         .style(Style::default().fg(Color::LightYellow))
+        //         // .block(
+        //         //     Block::new()
+        //         //         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+        //         //         .border_type(BorderType::Rounded),
+        //         // )
+        //         .alignment(ratatui::layout::Alignment::Center);
+        //     f.render_widget(p, header_area);
+        // }
 
         // let items: Vec<FocusListItem> = self
         //     .filtered_indices
@@ -491,14 +492,14 @@ impl FocusModeUI {
 
         if self.list.len() > 0 {
             self.list_state.update_animations();
-            f.render_stateful_widget(&self.list, main_chunks[1], &mut self.list_state);
+            f.render_stateful_widget(&self.list, area, &mut self.list_state);
         } else {
-            render_no_tasks(f, main_chunks[1]);
+            render_no_tasks(f, area);
         }
 
         let elapsed = last_frame.elapsed();
         self.effects
-            .process_effects(elapsed.into(), f.buffer_mut(), main_chunks[1]);
+            .process_effects(elapsed.into(), f.buffer_mut(), area);
     }
 }
 

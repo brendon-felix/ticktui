@@ -21,7 +21,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-const TICK_RATE: f64 = 4.0;
+pub const TICK_RATE: f64 = 4.0;
 const FRAME_RATE: f64 = 60.0;
 
 #[derive(Clone, Debug)]

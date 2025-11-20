@@ -7,7 +7,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::Line,
-    widgets::{Block, List, ListItem, ListState},
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState},
 };
 use ticks::tasks::{Task, TaskID};
 
@@ -82,8 +82,8 @@ impl ViewList {
     pub fn new() -> Self {
         let current_block = Some(
             Block::default()
-                .title("Views")
-                .borders(ratatui::widgets::Borders::ALL),
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
         );
         Self {
             views: vec![
@@ -107,9 +107,8 @@ impl ViewList {
     pub fn activate(&mut self) {
         self.current_block = Some(
             Block::default()
-                .title("Views")
-                // .border_set(BorderType::Rounded.to_border_set())
-                .borders(ratatui::widgets::Borders::ALL),
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
         );
         self.style = Style::default();
     }
@@ -117,9 +116,8 @@ impl ViewList {
     pub fn deactivate(&mut self) {
         self.current_block = Some(
             Block::default()
-                .title("Views")
-                .borders(ratatui::widgets::Borders::ALL)
-                // .border_set(BorderType::Rounded.to_border_set())
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .style(Style::default().add_modifier(Modifier::DIM)),
         );
         self.style = Style::default().add_modifier(Modifier::DIM);

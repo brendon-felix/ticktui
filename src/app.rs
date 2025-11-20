@@ -23,7 +23,7 @@ pub enum AppAction {
     Render(Instant),
     Resize(u16, u16),
     Quit,
-    Error(String),
+    Debug(String),
     RefreshData,
     UpdateCache,
     TaskAction(ProjectID, TaskID, TaskAction),
@@ -102,7 +102,7 @@ impl App {
                     let _ = tx.send(AppAction::UpdateCache);
                 }
                 Err(e) => {
-                    let _ = tx.send(AppAction::Error(e.to_string()));
+                    let _ = tx.send(AppAction::Debug(e.to_string()));
                 }
             }
         });
@@ -169,10 +169,11 @@ impl App {
         match action {
             AppAction::Tick => {
                 self.tick_count += 1;
-                if self.tick_count >= 120 {
-                    self.tick_count = 0;
-                    tx.send(AppAction::RefreshData)?;
-                }
+                // if self.tick_count >= 120 {
+                //     self.tick_count = 0;
+                //     tx.send(AppAction::RefreshData)?;
+                // }
+                self.ui.next_tick();
             }
             AppAction::Render(last_frame) => self.render(last_frame)?,
             AppAction::Resize(w, h) => {
@@ -185,7 +186,7 @@ impl App {
             AppAction::TaskAction(p_id, t_id, action) => {
                 self.execute_task_action(p_id, t_id, action)
             }
-            AppAction::Error(_e) => {}
+            AppAction::Debug(msg) => self.ui.debug(msg),
             AppAction::Confirm(action) => self.ui.confirm(*action),
             AppAction::ClosePopup => self.ui.close_popup(),
             AppAction::MultiAction(actions) => {

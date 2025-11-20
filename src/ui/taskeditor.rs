@@ -87,7 +87,7 @@ fn new_block(title: &'static str) -> Block<'static> {
 pub struct TaskEditor {
     editor: CompositeEditor,
     editor_state: CompositeEditorState,
-    unsaved_changes: bool,
+    pub unsaved_changes: bool,
     effects: EffectManager<()>,
 }
 
@@ -128,10 +128,10 @@ impl TaskEditor {
         }
     }
 
-    pub fn with_initial_mode(mut self, mode: EditorMode) -> Self {
-        self.editor.set_mode(mode);
-        self
-    }
+    // pub fn with_initial_mode(mut self, mode: EditorMode) -> Self {
+    //     self.editor.set_mode(mode);
+    //     self
+    // }
 
     pub fn deactivate(&mut self) {
         self.editor.set_pending_action(None);
@@ -140,6 +140,10 @@ impl TaskEditor {
 
     pub fn activate(&mut self) {
         self.editor.set_active_editor(Some(0));
+    }
+
+    pub fn set_mode(&mut self, mode: EditorMode) {
+        self.editor.set_mode(mode);
     }
 
     pub fn set_title_content(&mut self, title: &str) {
@@ -171,6 +175,7 @@ impl TaskEditor {
         // Reset priority color to default
         self.editor.editors[2].set_style(Style::default());
         self.editor.editors[2].override_border_style(Style::default());
+        self.unsaved_changes = false;
     }
 
     pub fn load_task(&mut self, task: &Task) {
@@ -212,10 +217,15 @@ impl TaskEditor {
                 // fx::sweep_in(Motion::RightToLeft, 5, 0, bg, timer).with_area(inner)
             })
             .for_each(|fx| self.effects.add_effect(fx));
+        self.unsaved_changes = false;
     }
 
     // pub fn has_unsaved_changes(&self) -> bool {
     //     self.unsaved_changes
+    // }
+
+    // pub fn discard_changes(&mut self) {
+    //     self.unsaved_changes = false;
     // }
 
     pub fn is_in_insert_mode(&self) -> bool {
@@ -259,10 +269,10 @@ impl TaskEditor {
             };
             match action_opt {
                 Some(action) => match action {
-                    EditorAction::SetMode(EditorMode::Normal) if self.unsaved_changes => {
-                        self.submit_field();
-                    }
                     EditorAction::Submit => self.submit_field(),
+                    EditorAction::ApplyInput(_) => {
+                        self.editor.execute_action(action);
+                    }
                     _ => self.editor.execute_action(action),
                 },
                 None => {}
@@ -302,14 +312,8 @@ impl TaskEditor {
             editor.validate();
             editor.update_style();
         }
-        // let areas = Layout::new(
-        //     Direction::Horizontal,
-        //     [Constraint::Fill(2), Constraint::Fill(1)],
-        // )
-        // .split(area);
 
         f.render_stateful_widget(&mut self.editor, area, &mut self.editor_state);
-        // f.render_widget(Block::new().borders(Borders::ALL), areas[1]);
 
         let elapsed = last_frame.elapsed();
         self.effects

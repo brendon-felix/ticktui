@@ -13,12 +13,14 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     app::AppAction,
     ui::{
+        editor::EditorMode,
         taskeditor::TaskEditor,
         tasklist::TaskList,
         views::{View, ViewList},
     },
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum ActivePane {
     ViewList,
     TaskList,
@@ -121,6 +123,23 @@ impl NormalModeUI {
                             self.task_editor.load_task(&selected_task);
                         }
                     }
+                    KeyCode::Char('n') => {
+                        // self.task_list.insert_new_task();
+                        self.task_editor.clear_all_fields();
+                        if let Some(view) = self.view_list.get_current_view() {
+                            match view {
+                                View::Today => self.task_editor.set_due_date_content("Today"),
+                                View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
+                                View::Week => self.task_editor.set_due_date_content("Today"),
+                                // View::Inbox => self.task_editor.set_project_content(""),
+                                _ => {}
+                            }
+                        }
+                        self.active_pane = ActivePane::TaskEditor;
+                        self.view_list.deactivate();
+                        self.task_editor.activate();
+                        self.task_editor.set_mode(EditorMode::Insert);
+                    }
                     _ => self.view_list.handle_key_event(key_event),
                 }
                 if self.view_list.view_changed {
@@ -151,6 +170,23 @@ impl NormalModeUI {
                             self.task_editor.activate();
                         }
                     }
+                    KeyCode::Char('n') => {
+                        // self.task_list.insert_new_task();
+                        self.task_editor.clear_all_fields();
+                        if let Some(view) = self.view_list.get_current_view() {
+                            match view {
+                                View::Today => self.task_editor.set_due_date_content("Today"),
+                                View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
+                                View::Week => self.task_editor.set_due_date_content("Today"),
+                                // View::Inbox => self.task_editor.set_project_content(""),
+                                _ => {}
+                            }
+                        }
+                        self.active_pane = ActivePane::TaskEditor;
+                        self.task_list.deactivate();
+                        self.task_editor.activate();
+                        self.task_editor.set_mode(EditorMode::Insert);
+                    }
                     _ => self.task_list.handle_key_event(key_event),
                 }
                 self.update_task_editor_if_needed();
@@ -160,15 +196,22 @@ impl NormalModeUI {
                 //     if self.task_editor.is_in_insert_mode() {
                 //         self.task_editor.handle_key_event(key_event);
                 //     } else {
-                //         self.active_pane = ActivePane::TaskList;
+                //         self.active_pane = ActivePane::ViewList;
                 //         self.task_editor.deactivate();
-                //         self.task_list.activate();
+                //         self.view_list.activate();
                 //     }
                 // }
                 KeyCode::Esc => {
                     if self.task_editor.is_in_insert_mode() {
                         self.task_editor.handle_key_event(key_event);
                     } else {
+                        if self.task_editor.unsaved_changes {
+                            if let Some(selected_task) = self.task_list.get_current_task() {
+                                self.task_editor.load_task(&selected_task);
+                            } else {
+                                self.task_editor.clear_all_fields();
+                            }
+                        }
                         self.active_pane = ActivePane::TaskList;
                         self.task_editor.deactivate();
                         self.task_list.activate();
@@ -198,7 +241,7 @@ impl NormalModeUI {
             [
                 Constraint::Length(15),
                 Constraint::Fill(1),
-                Constraint::Fill(1),
+                // Constraint::Fill(1),
             ],
         )
         .split(main_area);
@@ -210,8 +253,14 @@ impl NormalModeUI {
         .split(chunks[0]);
 
         self.view_list.draw(f, left_chunks[0], last_frame);
-        self.task_list.draw(f, chunks[1], last_frame);
-        self.task_editor.draw(f, chunks[2], last_frame);
+        match self.active_pane {
+            ActivePane::ViewList | ActivePane::TaskList => {
+                self.task_list.draw(f, chunks[1], last_frame);
+            }
+            ActivePane::TaskEditor => {
+                self.task_editor.draw(f, chunks[1], last_frame);
+            }
+        }
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), main_area);
