@@ -146,11 +146,10 @@ impl FocusModeUI {
                         let project_id = task.project_id.clone();
                         let task_id = task.get_id().clone();
                         self.tx
-                            .send(AppAction::TaskAction(
-                                project_id,
-                                task_id,
-                                TaskAction::Complete,
-                            ))
+                            .send(AppAction::MultiAction(vec![
+                                AppAction::TaskAction(project_id, task_id, TaskAction::Complete),
+                                AppAction::RefreshData,
+                            ]))
                             .unwrap_or(());
                     }
                     self.shown_tasks.remove(shown_idx);
