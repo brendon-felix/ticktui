@@ -218,6 +218,10 @@ impl Editor {
         self.single_line
     }
 
+    pub fn get_content(&self) -> String {
+        self.textarea.lines().join("\n")
+    }
+
     pub fn get_mode(&self) -> EditorMode {
         self.state.mode
     }

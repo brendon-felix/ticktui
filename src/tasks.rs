@@ -1,13 +1,99 @@
 use anyhow::Result;
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use ticks::{
     TickTick,
     projects::ProjectID,
-    tasks::{Task, TaskID},
+    tasks::{Task, TaskID, TaskPriority},
 };
+
+#[derive(Debug, Clone, Default)]
+pub struct TaskData {
+    pub title: Option<String>,
+    pub task_id: Option<TaskID>,
+    pub project_id: Option<ProjectID>, // None means inbox
+    // is_all_day: bool, // assumed true if time is 00:00:00
+    // completed_time: Option<DateTime<Utc>>, // APi doesn't support completed tasks afaik
+    pub content: Option<String>,
+    // desc: Option<String>, // not really sure what this field does
+    pub due_date: Option<DateTime<Utc>>,
+    // subtasks: Vec<Subtask>, // not supported yet
+    pub priority: Option<TaskPriority>,
+    // reminders: Option<Vec<String>>, // not supported yet
+    // repeat_flag: Option<String>, // not supported yet
+    // sort_order, Option<i64>, // not supported
+    // start_date: Option<DateTime<Utc>>, // not supported yet
+    // status: Option<TaskStatus>, // again, not sure API even sends completed tasks
+    // time_zone: Option<chrono::TimeZone>, // assume local timezone
+    // tags: Vec<String>, // also don't think API supports this
+}
+
+#[allow(dead_code)]
+impl TaskData {
+    pub fn from_task(task: &Task) -> Self {
+        Self {
+            title: Some(task.title.clone()),
+            task_id: Some(task.get_id().clone()),
+            project_id: Some(task.project_id.clone()),
+            content: Some(task.content.clone()),
+            due_date: Some(task.due_date),
+            priority: Some(task.priority),
+        }
+    }
+
+    pub fn title(mut self, title: String) -> Self {
+        self.title = Some(title);
+        self
+    }
+
+    pub fn task_id(mut self, task_id: TaskID) -> Self {
+        self.task_id = Some(task_id);
+        self
+    }
+
+    pub fn project_id(mut self, project_id: ProjectID) -> Self {
+        self.project_id = Some(project_id);
+        self
+    }
+
+    pub fn content(mut self, content: String) -> Self {
+        self.content = Some(content);
+        self
+    }
+
+    pub fn due_date(mut self, due_date: DateTime<Utc>) -> Self {
+        self.due_date = Some(due_date);
+        self
+    }
+
+    pub fn priority(mut self, priority: TaskPriority) -> Self {
+        self.priority = Some(priority);
+        self
+    }
+}
+
+pub fn patch_task(task: &Task, data: TaskData) -> TaskData {
+    let mut new_data = TaskData::from_task(task);
+
+    if let Some(ref title) = data.title {
+        new_data.title = Some(title.clone());
+    }
+    if let Some(ref content) = data.content {
+        new_data.content = Some(content.clone());
+    }
+    if let Some(ref due_date) = data.due_date {
+        new_data.due_date = Some(*due_date);
+    }
+    if let Some(ref priority) = data.priority {
+        new_data.priority = Some(*priority);
+    }
+
+    new_data
+}
 
 #[derive(Debug, Clone)]
 pub enum TaskAction {
+    Create,
+    Edit,
     Complete,
     Delete,
 }
@@ -289,13 +375,76 @@ pub fn is_in_inbox(task: &Task) -> bool {
 //         .map_err(|e| format!("Failed to edit task: {:?}", e))
 // }
 
-pub async fn complete_task(
-    client: &TickTick,
-    project_id: &ProjectID,
-    task_id: &TaskID,
-) -> Result<(), String> {
+pub async fn create_task(client: &TickTick, data: TaskData) -> Result<(), String> {
+    let mut builder = ticks::tasks::Task::builder(client, data.title.as_ref().unwrap());
+    let project_id = data
+        .project_id
+        .clone()
+        .unwrap_or(ProjectID("inbox".to_string()));
+    builder = builder.project_id(project_id);
+
+    if let Some(c) = data.content {
+        builder = builder.content(&c);
+    }
+
+    if let Some(due_date) = data.due_date {
+        builder = builder.due_date(due_date);
+    }
+
+    if let Some(priority) = data.priority {
+        builder = builder.priority(priority);
+    }
+
+    match builder.build_and_publish().await {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Failed to create task: {:?}", e)),
+    }
+}
+
+pub async fn edit_task(client: &TickTick, data: TaskData) -> Result<(), String> {
     // Get a fresh task instance from the API with proper client context
-    match client.get_project_data(project_id).await {
+    let project_id = data.project_id.clone().unwrap();
+    let task_id = data.task_id.clone().unwrap();
+    match client.get_project_data(&project_id).await {
+        Ok(project_data) => {
+            // Find the task in the project data
+            if let Some(mut task) = project_data.tasks.into_iter().find(|t| {
+                let t_id = t.get_id();
+                t_id == &task_id
+            }) {
+                // Patch the task with new data
+                let patched_data = patch_task(&task, data);
+
+                if let Some(title) = patched_data.title {
+                    task.title = title;
+                }
+                if let Some(content) = patched_data.content {
+                    task.content = content;
+                }
+                if let Some(due_date) = patched_data.due_date {
+                    task.due_date = due_date;
+                }
+                if let Some(priority) = patched_data.priority {
+                    task.priority = priority;
+                }
+
+                match task.publish_changes().await {
+                    Ok(_) => Ok(()),
+                    Err(e) => Err(format!("Failed to edit task: {:?}", e)),
+                }
+            } else {
+                Err("Task not found in project".to_string())
+            }
+        }
+        Err(e) => Err(format!("Failed to get project data: {:?}", e)),
+    }
+}
+
+pub async fn complete_task(client: &TickTick, data: TaskData) -> Result<(), String> {
+    // Get a fresh task instance from the API with proper client context
+    let project_id = data.project_id.unwrap();
+    let task_id = data.task_id.unwrap();
+    match client.get_project_data(&project_id).await {
         Ok(project_data) => {
             // Find the task in the project data
             let task_id_str = format!("{:?}", task_id);
@@ -315,20 +464,11 @@ pub async fn complete_task(
     }
 }
 
-// pub async fn delete_task(task: Task) -> Result<(), String> {
-//     match task.delete().await {
-//         Ok(_) => Ok(()),
-//         Err(e) => Err(format!("Failed to delete task: {:?}", e)),
-//     }
-// }
-
-pub async fn delete_task(
-    client: &TickTick,
-    project_id: &ProjectID,
-    task_id: &TaskID,
-) -> Result<(), String> {
+pub async fn delete_task(client: &TickTick, data: TaskData) -> Result<(), String> {
     // Get a fresh task instance from the API with proper client context
-    match client.get_project_data(project_id).await {
+    let project_id = data.project_id.unwrap();
+    let task_id = data.task_id.unwrap();
+    match client.get_project_data(&project_id).await {
         Ok(project_data) => {
             // Find the task in the project data
             let task_id_str = format!("{:?}", task_id);

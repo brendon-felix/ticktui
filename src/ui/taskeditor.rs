@@ -12,16 +12,23 @@ use tachyonfx::{
     fx::{self},
 };
 use ticks::tasks::{Task, TaskPriority};
+use tokio::sync::mpsc::UnboundedSender;
 use tui_textarea::Input;
 
-use crate::ui::{
-    composite::{CompositeEditor, CompositeEditorState},
-    editor::{
-        Editor, EditorMode,
-        actions::{EditorAction, EditorActions},
-        handlers,
+use crate::{
+    app::AppAction,
+    tasks::{TaskAction, TaskData},
+    ui::{
+        UIAction,
+        composite::{CompositeEditor, CompositeEditorState},
+        editor::{
+            Editor, EditorMode,
+            actions::{EditorAction, EditorActions},
+            handlers,
+        },
+        normalmode::NormalModeAction,
+        utils,
     },
-    utils,
 };
 
 // const SAMPLE_DESCRIPTION: &str = r#"This is a description.
@@ -89,10 +96,11 @@ pub struct TaskEditor {
     editor_state: CompositeEditorState,
     pub unsaved_changes: bool,
     effects: EffectManager<()>,
+    tx: UnboundedSender<AppAction>,
 }
 
 impl TaskEditor {
-    pub fn new() -> Self {
+    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         let editors = vec![
             Editor::new()
                 .with_single_line()
@@ -125,6 +133,7 @@ impl TaskEditor {
             editor_state,
             unsaved_changes: false,
             effects,
+            tx,
         }
     }
 
@@ -228,6 +237,15 @@ impl TaskEditor {
     //     self.unsaved_changes = false;
     // }
 
+    fn parse_inputs(&self) -> TaskData {
+        let title = self.editor.editors[0].get_content().trim().to_string();
+        let due_date_input = self.editor.editors[1].get_content().trim().to_string();
+        let priority_input = self.editor.editors[2].get_content().trim().to_string();
+        let description = self.editor.editors[3].get_content().trim().to_string();
+
+        TaskData::default().title(title)
+    }
+
     pub fn is_in_insert_mode(&self) -> bool {
         if let Some(mode) = self.editor.get_mode() {
             match mode {
@@ -269,6 +287,19 @@ impl TaskEditor {
             };
             match action_opt {
                 Some(action) => match action {
+                    EditorAction::Submit if self.editor.is_last_editor_active() => {
+                        if self.unsaved_changes {
+                            let data = self.parse_inputs();
+                            let action = AppAction::MultiAction(vec![
+                                AppAction::UIAction(UIAction::NormalMode(
+                                    NormalModeAction::ExitTaskEditor,
+                                )),
+                                AppAction::TaskAction(TaskAction::Create, data),
+                            ]);
+                            let _ = self.tx.send(action);
+                            self.unsaved_changes = false;
+                        }
+                    }
                     EditorAction::Submit => self.submit_field(),
                     EditorAction::ApplyInput(_) => {
                         self.editor.execute_action(action);

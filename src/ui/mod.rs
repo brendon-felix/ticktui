@@ -23,10 +23,23 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     app::AppAction,
     ui::{
+        focusmode::FocusModeAction,
+        normalmode::NormalModeAction,
         popup::{Popup, confirm::ConfirmationPopup, debug::DebugPopup},
         views::View,
     },
 };
+
+#[derive(Debug, Clone)]
+pub enum UIAction {
+    EnterFocusMode(View),
+    ExitFocusMode,
+    NormalMode(NormalModeAction),
+    FocusMode(FocusModeAction),
+    Confirm(Box<AppAction>),
+    ClosePopup,
+    DebugMsg(String),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AppUIMode {
@@ -52,6 +65,33 @@ impl AppUI {
             popup: None,
             debug_popup: None,
             tx,
+        }
+    }
+
+    pub fn execute_action(&mut self, action: UIAction, tx: &UnboundedSender<AppAction>) {
+        match action {
+            UIAction::EnterFocusMode(view) => {
+                self.mode = AppUIMode::Focus;
+                self.focus_ui.set_view(view);
+            }
+            UIAction::ExitFocusMode => {
+                self.mode = AppUIMode::Normal;
+            }
+            UIAction::NormalMode(normal_action) => {
+                // self.normal_ui.execute_action(normal_action);
+            }
+            UIAction::FocusMode(focus_action) => {
+                // self.focus_ui.execute_action(focus_action);
+            }
+            UIAction::Confirm(pending_action) => {
+                self.confirm(*pending_action);
+            }
+            UIAction::ClosePopup => {
+                self.close_popup();
+            }
+            UIAction::DebugMsg(msg) => {
+                self.debug(msg);
+            }
         }
     }
 
@@ -140,9 +180,9 @@ impl AppUI {
         }
         match key_event.code {
             KeyCode::F(1) if self.allow_quit() => {
-                let _ = self
-                    .tx
-                    .send(AppAction::Debug(format!("{:?}", self.tx).into()));
+                let _ = self.tx.send(AppAction::UIAction(UIAction::DebugMsg(
+                    format!("{:?}", self.tx).into(),
+                )));
             }
             KeyCode::Char('f') if self.mode == AppUIMode::Normal && self.normal_ui.allow_quit() => {
                 let view = self

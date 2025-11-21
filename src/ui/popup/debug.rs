@@ -11,7 +11,11 @@ use ratatui::{
 use tachyonfx::{EffectManager, EffectTimer, Interpolation, fx};
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{app::AppAction, term::TICK_RATE, ui::popup::Popup};
+use crate::{
+    app::AppAction,
+    term::TICK_RATE,
+    ui::{UIAction, popup::Popup},
+};
 
 pub struct DebugPopup {
     msg: Text<'static>,
@@ -59,7 +63,7 @@ impl Popup for DebugPopup {
         // Handle key events for confirmation (e.g., Y/N)
         match key_event.code {
             KeyCode::Enter | KeyCode::Esc => {
-                let _ = self.tx.send(AppAction::ClosePopup);
+                let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
             }
             _ => {}
         }

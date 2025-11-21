@@ -14,8 +14,9 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    tasks::{TaskAction, is_overdue},
+    tasks::{TaskAction, TaskData, is_overdue},
     ui::{
+        UIAction,
         multiselect::{MultiSelectList, MultiSelectListItem, MultiSelectListState},
         utils,
         views::View,
@@ -210,14 +211,15 @@ impl TaskList {
 
     pub fn remove_task(&mut self, task_id: TaskID) {
         if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == &task_id) {
-            let project_id = task.project_id.clone();
-            let task_id = task.get_id().clone();
-            let task_action =
-                AppAction::TaskAction(project_id.clone(), task_id.clone(), TaskAction::Delete);
-            let confirm_action = AppAction::Confirm(Box::new(AppAction::MultiAction(vec![
-                task_action,
-                AppAction::RefreshData,
-            ])));
+            let data = TaskData::default()
+                .task_id(task.get_id().clone())
+                .project_id(task.project_id.clone());
+            let task_action = AppAction::TaskAction(TaskAction::Delete, data);
+            let confirm_action =
+                AppAction::UIAction(UIAction::Confirm(Box::new(AppAction::MultiAction(vec![
+                    task_action,
+                    AppAction::RefreshData,
+                ]))));
             let _ = self.tx.send(confirm_action);
             if self.shown_tasks.is_empty() {
                 self.list_state.select(None);
@@ -248,23 +250,19 @@ impl TaskList {
                 let task_actions = self.shown_tasks[s..=e].iter().filter_map(|task_id| {
                     self.all_tasks.iter().find_map(|task| {
                         if task.get_id() == task_id {
-                            let project_id = task.project_id.clone();
-                            let task_id = task.get_id().clone();
-                            Some(AppAction::TaskAction(
-                                project_id,
-                                task_id,
-                                TaskAction::Delete,
-                            ))
+                            let data = TaskData::from_task(&task);
+                            Some(AppAction::TaskAction(TaskAction::Delete, data))
                         } else {
                             None
                         }
                     })
                 });
-                let confirmation_action = AppAction::Confirm(Box::new(AppAction::MultiAction(
-                    task_actions
-                        .chain(std::iter::once(AppAction::RefreshData))
-                        .collect(),
-                )));
+                let confirmation_action =
+                    AppAction::UIAction(UIAction::Confirm(Box::new(AppAction::MultiAction(
+                        task_actions
+                            .chain(std::iter::once(AppAction::RefreshData))
+                            .collect(),
+                    ))));
                 let _ = self.tx.send(confirmation_action);
                 // self.list_state.select_next();
                 self.list_state.select(Some(s));

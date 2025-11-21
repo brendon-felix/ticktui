@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    ui::{popup::Popup, utils},
+    ui::{UIAction, popup::Popup, utils},
 };
 
 pub struct ConfirmationPopup {
@@ -55,10 +55,10 @@ impl Popup for ConfirmationPopup {
         match key_event.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 let _ = self.tx.send(self.pending_action.clone());
-                let _ = self.tx.send(AppAction::ClosePopup);
+                let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                let _ = self.tx.send(AppAction::ClosePopup);
+                let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
             }
             _ => {}
         }

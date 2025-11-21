@@ -17,7 +17,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    tasks::{TaskAction, is_overdue},
+    tasks::{TaskAction, TaskData, is_overdue},
     ui::{
         animate::{Animation, AnimationDirection, AnimationType},
         focuslist::{
@@ -28,6 +28,9 @@ use crate::{
         views::View,
     },
 };
+
+#[derive(Debug, Clone)]
+pub enum FocusModeAction {}
 
 pub struct FocusModeUI {
     // test_content: String,
@@ -143,11 +146,10 @@ impl FocusModeUI {
                 if shown_idx < self.shown_tasks.len() {
                     let task_id = &self.shown_tasks[shown_idx];
                     if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
-                        let project_id = task.project_id.clone();
-                        let task_id = task.get_id().clone();
+                        let data = TaskData::from_task(&task);
                         self.tx
                             .send(AppAction::MultiAction(vec![
-                                AppAction::TaskAction(project_id, task_id, TaskAction::Complete),
+                                AppAction::TaskAction(TaskAction::Complete, data),
                                 AppAction::RefreshData,
                             ]))
                             .unwrap_or(());

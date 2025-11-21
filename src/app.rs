@@ -4,17 +4,13 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-use ticks::{
-    TickTick,
-    projects::ProjectID,
-    tasks::{Task, TaskID},
-};
+use ticks::{TickTick, tasks::Task};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    tasks::{self, TaskAction, fetch_all_tasks},
+    tasks::{self, TaskAction, TaskData, fetch_all_tasks},
     term::{self, AppTerminal},
-    ui::AppUI,
+    ui::{AppUI, UIAction},
 };
 
 #[derive(Debug, Clone)]
@@ -23,12 +19,10 @@ pub enum AppAction {
     Render(Instant),
     Resize(u16, u16),
     Quit,
-    Debug(String),
     RefreshData,
     UpdateCache,
-    TaskAction(ProjectID, TaskID, TaskAction),
-    Confirm(Box<AppAction>),
-    ClosePopup,
+    TaskAction(TaskAction, TaskData),
+    UIAction(UIAction),
     MultiAction(Vec<AppAction>),
 }
 
@@ -102,7 +96,7 @@ impl App {
                     let _ = tx.send(AppAction::UpdateCache);
                 }
                 Err(e) => {
-                    let _ = tx.send(AppAction::Debug(e.to_string()));
+                    let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(e.to_string())));
                 }
             }
         });
@@ -190,12 +184,11 @@ impl App {
             AppAction::Quit => self.quitting = true,
             AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
-            AppAction::TaskAction(p_id, t_id, action) => {
-                self.execute_task_action(p_id, t_id, action)
-            }
-            AppAction::Debug(msg) => self.ui.debug(msg),
-            AppAction::Confirm(action) => self.ui.confirm(*action),
-            AppAction::ClosePopup => self.ui.close_popup(),
+            AppAction::TaskAction(action, data) => self.execute_task_action(action, data),
+            // AppAction::Debug(msg) => self.ui.debug(msg),
+            // AppAction::Confirm(action) => self.ui.confirm(*action),
+            // AppAction::ClosePopup => self.ui.close_popup(),
+            AppAction::UIAction(action) => self.ui.execute_action(action, tx),
             AppAction::MultiAction(actions) => {
                 for act in actions {
                     self.execute_action(act, tx)?;
@@ -205,15 +198,21 @@ impl App {
         Ok(())
     }
 
-    fn execute_task_action(&mut self, project_id: ProjectID, task_id: TaskID, action: TaskAction) {
+    fn execute_task_action(&mut self, action: TaskAction, data: TaskData) {
         let client = Arc::clone(&self.client);
         tokio::spawn(async move {
             match action {
+                TaskAction::Create => {
+                    let _ = tasks::create_task(&client, data).await;
+                }
+                TaskAction::Edit => {
+                    let _ = tasks::edit_task(&client, data).await;
+                }
                 TaskAction::Complete => {
-                    let _ = tasks::complete_task(&client, &project_id, &task_id).await;
+                    let _ = tasks::complete_task(&client, data).await;
                 }
                 TaskAction::Delete => {
-                    let _ = tasks::delete_task(&client, &project_id, &task_id).await;
+                    let _ = tasks::delete_task(&client, data).await;
                 }
             }
         });

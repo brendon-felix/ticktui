@@ -20,6 +20,13 @@ use crate::{
     },
 };
 
+#[derive(Debug, Clone)]
+pub enum NormalModeAction {
+    EditTask,
+    StartNewTask,
+    ExitTaskEditor,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ActivePane {
     ViewList,
@@ -41,7 +48,7 @@ impl NormalModeUI {
         view_list.activate();
         let mut task_list = TaskList::new(Arc::new(vec![]), tx.clone());
         task_list.deactivate();
-        let mut task_editor = TaskEditor::new();
+        let mut task_editor = TaskEditor::new(tx.clone());
         task_editor.deactivate();
         let mut effects: EffectManager<()> = EffectManager::default();
         let c = Color::Rgb(25, 25, 25);
@@ -60,17 +67,17 @@ impl NormalModeUI {
 
     /// Updates the task editor if the currently selected task has changed.
     /// This is called after task filtering or task list navigation.
-    fn update_task_editor_if_needed(&mut self) {
-        if self.task_list.task_changed {
-            if let Some(selected_task) = self.task_list.get_current_task() {
-                self.task_editor.load_task(&selected_task);
-            } else {
-                // Clear task editor when no task is selected (empty list)
-                self.task_editor.clear_all_fields();
-            }
-            self.task_list.task_changed = false;
-        }
-    }
+    // fn update_task_editor_if_needed(&mut self) {
+    //     if self.task_list.task_changed {
+    //         if let Some(selected_task) = self.task_list.get_current_task() {
+    //             self.task_editor.load_task(&selected_task);
+    //         } else {
+    //             // Clear task editor when no task is selected (empty list)
+    //             self.task_editor.clear_all_fields();
+    //         }
+    //         self.task_list.task_changed = false;
+    //     }
+    // }
 
     pub fn get_current_view(&self) -> Option<&View> {
         self.view_list.get_current_view()
@@ -87,7 +94,7 @@ impl NormalModeUI {
         // Apply the current view filter
         self.apply_current_view_filter();
         self.task_list.tasks_loaded = true;
-        self.update_task_editor_if_needed();
+        // self.update_task_editor_if_needed();
     }
 
     // /// Sets the view filter programmatically and applies it to the task list.
@@ -119,9 +126,9 @@ impl NormalModeUI {
                         self.active_pane = ActivePane::TaskList;
                         self.view_list.deactivate();
                         self.task_list.activate();
-                        if let Some(selected_task) = self.task_list.get_current_task() {
-                            self.task_editor.load_task(&selected_task);
-                        }
+                        // if let Some(selected_task) = self.task_list.get_current_task() {
+                        //     self.task_editor.load_task(&selected_task);
+                        // }
                     }
                     KeyCode::Char('n') => {
                         // self.task_list.insert_new_task();
@@ -165,6 +172,9 @@ impl NormalModeUI {
                     // }
                     KeyCode::Enter => {
                         if !self.task_list.is_empty() {
+                            if let Some(selected_task) = self.task_list.get_current_task() {
+                                self.task_editor.load_task(&selected_task);
+                            }
                             self.active_pane = ActivePane::TaskEditor;
                             self.task_list.deactivate();
                             self.task_editor.activate();
@@ -189,7 +199,6 @@ impl NormalModeUI {
                     }
                     _ => self.task_list.handle_key_event(key_event),
                 }
-                self.update_task_editor_if_needed();
             }
             ActivePane::TaskEditor => match key_event.code {
                 // KeyCode::Left | KeyCode::Char('h') => {
