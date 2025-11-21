@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local, NaiveTime, Utc};
 use ticks::{
     TickTick,
     projects::ProjectID,
@@ -389,6 +389,11 @@ pub async fn create_task(client: &TickTick, data: TaskData) -> Result<(), String
 
     if let Some(due_date) = data.due_date {
         builder = builder.due_date(due_date);
+        // if time is 12:00 AM, set as all-day
+        let time = due_date.with_timezone(&chrono::Local).time();
+        if time == NaiveTime::from_hms_opt(0, 0, 0).unwrap() {
+            builder = builder.is_all_day(true);
+        }
     }
 
     if let Some(priority) = data.priority {

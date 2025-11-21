@@ -78,7 +78,7 @@ impl AppUI {
                 self.mode = AppUIMode::Normal;
             }
             UIAction::NormalMode(normal_action) => {
-                // self.normal_ui.execute_action(normal_action);
+                self.normal_ui.execute_action(normal_action);
             }
             UIAction::FocusMode(focus_action) => {
                 // self.focus_ui.execute_action(focus_action);

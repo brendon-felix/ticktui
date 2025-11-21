@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use chrono::{Local, TimeZone, Utc};
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
@@ -13,7 +14,7 @@ use tachyonfx::{
 };
 use ticks::tasks::{Task, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
-use tui_textarea::Input;
+use tui_textarea::{Input, Key};
 
 use crate::{
     app::AppAction,
@@ -243,7 +244,27 @@ impl TaskEditor {
         let priority_input = self.editor.editors[2].get_content().trim().to_string();
         let description = self.editor.editors[3].get_content().trim().to_string();
 
-        TaskData::default().title(title)
+        let mut data = TaskData::default().title(title);
+
+        if !due_date_input.is_empty() {
+            if let Ok(dt) = utils::parse_datetime(&due_date_input) {
+                // Convert NaiveDateTime to DateTime<Utc> by treating it as local time first
+                let dt_utc = Local.from_local_datetime(&dt).unwrap().with_timezone(&Utc);
+                data = data.due_date(dt_utc);
+            }
+        }
+
+        if !priority_input.is_empty() {
+            if let Some(priority) = parse_priority(&priority_input) {
+                data = data.priority(priority);
+            }
+        }
+
+        if !description.is_empty() {
+            data = data.content(description);
+        }
+
+        data
     }
 
     pub fn is_in_insert_mode(&self) -> bool {
@@ -259,6 +280,26 @@ impl TaskEditor {
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {
         let input: Input = key_event.into();
+        if let Input {
+            key: Key::Enter,
+            ctrl: false,
+            alt: true,
+            shift: false,
+        } = input
+        {
+            let _ = self
+                .tx
+                .send(AppAction::UIAction(UIAction::DebugMsg("Test".into())));
+            // if self.unsaved_changes {
+            let data = self.parse_inputs();
+            let action = AppAction::MultiAction(vec![
+                AppAction::TaskAction(TaskAction::Create, data),
+                AppAction::UIAction(UIAction::NormalMode(NormalModeAction::ExitTaskEditor)),
+                AppAction::RefreshData,
+            ]);
+            let _ = self.tx.send(action);
+            return;
+        }
         if let Some(mode) = self.editor.get_mode() {
             let action_opt = if let Some(pending_action) = self.editor.get_pending_action() {
                 match handlers::handle_pending_action_input(input, pending_action) {
@@ -287,19 +328,7 @@ impl TaskEditor {
             };
             match action_opt {
                 Some(action) => match action {
-                    EditorAction::Submit if self.editor.is_last_editor_active() => {
-                        if self.unsaved_changes {
-                            let data = self.parse_inputs();
-                            let action = AppAction::MultiAction(vec![
-                                AppAction::UIAction(UIAction::NormalMode(
-                                    NormalModeAction::ExitTaskEditor,
-                                )),
-                                AppAction::TaskAction(TaskAction::Create, data),
-                            ]);
-                            let _ = self.tx.send(action);
-                            self.unsaved_changes = false;
-                        }
-                    }
+                    // EditorAction::Submit if self.editor.is_last_editor_active() => {}
                     EditorAction::Submit => self.submit_field(),
                     EditorAction::ApplyInput(_) => {
                         self.editor.execute_action(action);

@@ -200,20 +200,16 @@ impl App {
 
     fn execute_task_action(&mut self, action: TaskAction, data: TaskData) {
         let client = Arc::clone(&self.client);
-        tokio::spawn(async move {
+        // let _ = self.tx.send(AppAction::UIAction(UIAction::DebugMsg(format!(
+        //     "Executing task action: {:?} with data: {:?}",
+        //     action, data
+        // ))));
+        let _ = tokio::spawn(async move {
             match action {
-                TaskAction::Create => {
-                    let _ = tasks::create_task(&client, data).await;
-                }
-                TaskAction::Edit => {
-                    let _ = tasks::edit_task(&client, data).await;
-                }
-                TaskAction::Complete => {
-                    let _ = tasks::complete_task(&client, data).await;
-                }
-                TaskAction::Delete => {
-                    let _ = tasks::delete_task(&client, data).await;
-                }
+                TaskAction::Create => tasks::create_task(&client, data).await,
+                TaskAction::Edit => tasks::edit_task(&client, data).await,
+                TaskAction::Complete => tasks::complete_task(&client, data).await,
+                TaskAction::Delete => tasks::delete_task(&client, data).await,
             }
         });
     }

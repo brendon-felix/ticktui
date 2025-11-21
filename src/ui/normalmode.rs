@@ -22,9 +22,10 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub enum NormalModeAction {
-    EditTask,
-    StartNewTask,
+    EditSelectedTask,
+    CreateNewTask,
     ExitTaskEditor,
+    SwitchView,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +63,51 @@ impl NormalModeUI {
             active_pane: ActivePane::ViewList,
             effects,
             // tx,
+        }
+    }
+
+    pub fn execute_action(&mut self, action: NormalModeAction) {
+        match action {
+            NormalModeAction::EditSelectedTask => {
+                if let Some(selected_task) = self.task_list.get_current_task() {
+                    self.task_editor.load_task(&selected_task);
+                    self.active_pane = ActivePane::TaskEditor;
+                    self.task_list.deactivate();
+                    self.task_editor.activate();
+                }
+            }
+            NormalModeAction::CreateNewTask => {
+                self.task_editor.clear_all_fields();
+                if let Some(view) = self.view_list.get_current_view() {
+                    match view {
+                        View::Today => self.task_editor.set_due_date_content("Today"),
+                        View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
+                        View::Week => self.task_editor.set_due_date_content("Today"),
+                        // View::Inbox => self.task_editor.set_project_content(""),
+                        _ => {}
+                    }
+                }
+                self.active_pane = ActivePane::TaskEditor;
+                self.task_list.deactivate();
+                self.task_editor.activate();
+                self.task_editor.set_mode(EditorMode::Insert);
+            }
+            NormalModeAction::ExitTaskEditor => {
+                // if let Some(selected_task) = self.task_list.get_current_task() {
+                //     self.task_editor.load_task(&selected_task);
+                // } else {
+                //     self.task_editor.clear_all_fields();
+                // }
+                self.task_editor.clear_all_fields();
+                self.active_pane = ActivePane::TaskList;
+                self.task_editor.deactivate();
+                self.task_list.activate();
+            }
+            NormalModeAction::SwitchView => {
+                self.apply_current_view_filter();
+                self.task_list.clear_selection();
+                self.task_editor.clear_all_fields();
+            }
         }
     }
 
