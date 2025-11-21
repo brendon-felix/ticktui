@@ -13,7 +13,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    term::TICK_RATE,
+    term::TICK_PERIOD_MS,
     ui::{UIAction, popup::Popup},
 };
 
@@ -27,7 +27,7 @@ pub struct DebugPopup {
 
 impl DebugPopup {
     pub fn new(msg: Text<'static>, ticks: u16, tx: UnboundedSender<AppAction>) -> Self {
-        let msg_time = Duration::from_secs_f32(ticks as f32 * 1.2 / (TICK_RATE as f32));
+        let msg_time = Duration::from_millis(ticks as u64 * TICK_PERIOD_MS);
         let mut effects: EffectManager<()> = EffectManager::default();
         let c = Color::Rgb(25, 25, 25);
         let delay = EffectTimer::from_ms((msg_time.as_millis() / 2) as u32, Interpolation::Linear);
@@ -73,7 +73,7 @@ impl Popup for DebugPopup {
         // Handle mouse events if necessary
     }
 
-    fn allow_quit(&self) -> bool {
+    fn allow_key_cmd(&self) -> bool {
         true
     }
 

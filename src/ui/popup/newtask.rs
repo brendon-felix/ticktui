@@ -81,7 +81,7 @@ impl Popup for NewTaskPopup {
         let _ = mouse_event;
     }
 
-    fn allow_quit(&self) -> bool {
+    fn allow_key_cmd(&self) -> bool {
         false
     }
 

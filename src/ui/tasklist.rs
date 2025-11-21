@@ -19,7 +19,7 @@ use crate::{
         UIAction,
         multiselect::{MultiSelectList, MultiSelectListItem, MultiSelectListState},
         utils,
-        views::View,
+        viewselector::View,
     },
 };
 
@@ -200,7 +200,7 @@ impl TaskList {
                 area
             };
             if let Some(effect_area) = self.list_left.calculate_effect_area(area) {
-                let timer = EffectTimer::from_ms(200, Interpolation::Linear);
+                let timer = EffectTimer::from_ms(300, Interpolation::Linear);
                 // let fx = fx::coalesce(timer);
                 let c = Color::Rgb(25, 25, 25);
                 let fx = fx::sweep_in(Motion::UpToDown, 5, 0, c, timer).with_area(effect_area);

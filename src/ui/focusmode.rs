@@ -11,26 +11,40 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tachyonfx::{EffectManager, EffectTimer, fx};
+use tachyonfx::{EffectManager, EffectTimer, Interpolation, RefRect, fx};
 use ticks::tasks::{Task, TaskID, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
     tasks::{TaskAction, TaskData, is_overdue},
+    term::TICK_PERIOD_MS,
     ui::{
+        UIAction,
         animate::{Animation, AnimationDirection, AnimationType},
         focuslist::{
             FocusList, FocusListItem,
             state::{FocusListPosition, FocusListState},
         },
         utils,
-        views::View,
+        viewselector::View,
     },
 };
 
+const N_TICKS: u64 = 3;
+const EXPLODE_MS: u64 = TICK_PERIOD_MS * N_TICKS;
+const MOTION_DURATION_MS: u64 = TICK_PERIOD_MS * 2;
+
 #[derive(Debug, Clone)]
-pub enum FocusModeAction {}
+pub enum FocusModeAction {
+    AnimateScrollUp,
+    AnimateScrollDown,
+    AnimateShiftUp,
+    AnimateShiftDown,
+    // AnimateCompletion(bool), // is_next_available
+    AnimateCompletion,
+    RemoveFocusedItem,
+}
 
 pub struct FocusModeUI {
     // test_content: String,
@@ -43,12 +57,11 @@ pub struct FocusModeUI {
     // focus_buf: Buffer,
     // next_buf: Buffer,
     effects: EffectManager<()>,
-    pending_completion: Option<(usize, Instant)>, // (task_index, removal_time)
-    tx: UnboundedSender<AppAction>,
+    // tx: UnboundedSender<AppAction>,
 }
 
 impl FocusModeUI {
-    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
+    pub fn new() -> Self {
         Self {
             all_tasks: Arc::new(Vec::new()),
             shown_tasks: Vec::new(),
@@ -56,8 +69,18 @@ impl FocusModeUI {
             list: FocusList::new(Vec::<FocusListItem>::new()),
             list_state: FocusListState::default(),
             effects: EffectManager::default(),
-            pending_completion: None,
-            tx,
+            // tx,
+        }
+    }
+
+    pub fn execute_action(&mut self, action: FocusModeAction) {
+        match action {
+            FocusModeAction::AnimateScrollUp => self.animate_scroll_up(),
+            FocusModeAction::AnimateScrollDown => self.animate_scroll_down(),
+            FocusModeAction::AnimateShiftUp => self.animate_shift_up(),
+            FocusModeAction::AnimateShiftDown => self.animate_shift_down(),
+            FocusModeAction::AnimateCompletion => self.animate_completion(),
+            FocusModeAction::RemoveFocusedItem => self.remove_focused_item(),
         }
     }
 
@@ -105,336 +128,72 @@ impl FocusModeUI {
         // self.tasks_loaded = true;
     }
 
-    // pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
-    //     let len_before = self.shown_tasks.len();
-    //     self.set_all_tasks(tasks);
-    //     self.filter_tasks(|now, task| is_due_today(now, task) | is_overdue(now, task));
-    //     if len_before != self.filtered_indices.len() {
-    //         let duration = Duration::from_millis(1000);
-    //         [
-    //             FocusListPosition::Prev,
-    //             FocusListPosition::Focused,
-    //             FocusListPosition::Next,
-    //         ]
-    //         .iter()
-    //         .for_each(|pos| {
-    //             if let Some(area_ref) = self.list_state.get_area_ref(*pos) {
-    //                 let fx = fx::dynamic_area(
-    //                     area_ref,
-    //                     fx::fade_from_fg(
-    //                         Color::Rgb(25, 25, 25),
-    //                         EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut),
-    //                     ),
-    //                 );
-    //                 self.effects.add_effect(fx);
-    //             }
-    //         });
-    //     }
-    //     // self.task_list.tasks_loaded = true;
-    // }
-
-    pub fn schedule_completion(&mut self, delay_ms: u64) {
+    fn get_focused_task(&self) -> Option<(usize, Arc<Task>)> {
         if let Some(idx) = self.list.focused_index() {
-            let removal_time = Instant::now() + Duration::from_millis(delay_ms);
-            self.pending_completion = Some((idx, removal_time));
+            if let Some(task_id) = self.shown_tasks.get(idx) {
+                if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
+                    return Some((idx, Arc::clone(&task)));
+                }
+            }
         }
+        None
     }
 
-    pub fn process_pending_completion(&mut self) {
-        if let Some((shown_idx, removal_time)) = self.pending_completion {
-            if Instant::now() >= removal_time {
-                if shown_idx < self.shown_tasks.len() {
-                    let task_id = &self.shown_tasks[shown_idx];
-                    if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
-                        let data = TaskData::from_task(&task);
-                        self.tx
-                            .send(AppAction::MultiAction(vec![
-                                AppAction::TaskAction(TaskAction::Complete, data),
-                                AppAction::RefreshData,
-                            ]))
-                            .unwrap_or(());
-                    }
-                    self.shown_tasks.remove(shown_idx);
-                    if self.shown_tasks.is_empty() {
-                        self.list.focus(None);
-                    } else if shown_idx >= self.shown_tasks.len() {
-                        self.list.focus(Some(self.shown_tasks.len() - 1));
-                    }
-                }
-                self.pending_completion = None;
+    fn remove_focused_item(&mut self) {
+        if let Some((idx, _task)) = self.get_focused_task() {
+            self.shown_tasks.remove(idx);
+            if self.shown_tasks.is_empty() {
+                self.list.focus(None);
+            } else if idx >= self.shown_tasks.len() {
+                self.list.focus(Some(self.shown_tasks.len() - 1));
             }
         }
     }
 
-    pub fn allow_quit(&self) -> bool {
+    pub fn allow_key_cmd(&self) -> bool {
         true
     }
 
-    pub fn handle_key_event(&mut self, key_event: KeyEvent) {
-        let idx = self.list.focused_index();
+    pub fn handle_key_event(&mut self, key_event: KeyEvent, tx: &UnboundedSender<AppAction>) {
         match key_event.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                self.list.focus_next();
-                if idx != self.list.focused_index() {
-                    let translate = AnimationType::TranslateFrom { x: 0, y: 10 };
-                    let translate_shrink = vec![
-                        AnimationType::TranslateFrom { x: 0, y: 10 },
-                        AnimationType::ResizeFrom {
-                            dir: AnimationDirection::Horizontal,
-                            amount: 10,
-                        },
-                    ];
-                    let translate_grow = vec![
-                        AnimationType::TranslateFrom { x: 0, y: 10 },
-                        AnimationType::ResizeFrom {
-                            dir: AnimationDirection::Horizontal,
-                            amount: -10,
-                        },
-                    ];
-                    let translate_shrink = AnimationType::Composite(translate_shrink);
-                    let translate_grow = AnimationType::Composite(translate_grow);
-                    let duration = Duration::from_millis(200);
-                    self.list_state.start_animation(
-                        Animation::new(translate_grow, duration),
-                        FocusListPosition::Focused,
-                    );
-                    self.list_state.start_animation(
-                        Animation::new(translate_shrink, duration),
-                        FocusListPosition::Prev,
-                    );
-                    self.list_state.start_animation(
-                        Animation::new(translate.clone(), duration),
-                        FocusListPosition::Next,
-                    );
-                    if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Next) {
-                        let fx = fx::dynamic_area(
-                            area_ref,
-                            fx::fade_from_fg(
-                                Color::Rgb(25, 25, 25),
-                                EffectTimer::new(
-                                    duration.into(),
-                                    tachyonfx::Interpolation::SineOut,
-                                ),
-                            ),
-                        );
-                        self.effects.add_effect(fx);
-                    }
-                    let translate = AnimationType::TranslateTo { x: 0, y: -10 };
-                    self.list_state.start_animation(
-                        Animation::new(translate.clone(), duration),
-                        FocusListPosition::PrevPrev,
-                    );
-                    if let Some(area_ref) =
-                        self.list_state.get_area_ref(FocusListPosition::PrevPrev)
-                    {
-                        let fx = fx::dynamic_area(
-                            area_ref,
-                            fx::fade_to_fg(
-                                Color::Rgb(25, 25, 25),
-                                EffectTimer::new(
-                                    duration.into(),
-                                    tachyonfx::Interpolation::SineOut,
-                                ),
-                            ),
-                        );
-                        self.effects.add_effect(fx);
-                    }
-                }
+            KeyCode::Char('j') | KeyCode::Down if self.list.focus_next() => {
+                // self.animate_scroll_down();
+                let _ = tx.send(AppAction::UIAction(UIAction::FocusMode(
+                    FocusModeAction::AnimateScrollDown,
+                )));
             }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.list.focus_previous();
-                if idx != self.list.focused_index() {
-                    let translate = AnimationType::TranslateFrom { x: 0, y: -10 };
-                    let translate_shrink = vec![
-                        AnimationType::TranslateFrom { x: 0, y: -10 },
-                        AnimationType::ResizeFrom {
-                            dir: AnimationDirection::Horizontal,
-                            amount: 10,
-                        },
-                    ];
-                    let translate_grow = vec![
-                        AnimationType::TranslateFrom { x: 0, y: -10 },
-                        AnimationType::ResizeFrom {
-                            dir: AnimationDirection::Horizontal,
-                            amount: -10,
-                        },
-                    ];
-                    let translate_shrink = AnimationType::Composite(translate_shrink);
-                    let translate_grow = AnimationType::Composite(translate_grow);
-                    let duration = Duration::from_millis(200);
-                    self.list_state.start_animation(
-                        Animation::new(translate_grow, duration),
-                        FocusListPosition::Focused,
-                    );
-                    self.list_state.start_animation(
-                        Animation::new(translate, duration),
-                        FocusListPosition::Prev,
-                    );
-                    self.list_state.start_animation(
-                        Animation::new(translate_shrink, duration),
-                        FocusListPosition::Next,
-                    );
-                    if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Prev) {
-                        let fx = fx::dynamic_area(
-                            area_ref,
-                            fx::fade_from_fg(
-                                Color::Rgb(25, 25, 25),
-                                EffectTimer::new(
-                                    duration.into(),
-                                    tachyonfx::Interpolation::SineOut,
-                                ),
-                            ),
-                        );
-                        self.effects.add_effect(fx);
-                    }
-                    let translate = AnimationType::TranslateTo { x: 0, y: 10 };
-                    self.list_state.start_animation(
-                        Animation::new(translate.clone(), duration),
-                        FocusListPosition::NextNext,
-                    );
-                    if let Some(area_ref) =
-                        self.list_state.get_area_ref(FocusListPosition::NextNext)
-                    {
-                        let fx = fx::dynamic_area(
-                            area_ref,
-                            fx::fade_to_fg(
-                                Color::Rgb(25, 25, 25),
-                                EffectTimer::new(
-                                    duration.into(),
-                                    tachyonfx::Interpolation::SineOut,
-                                ),
-                            ),
-                        );
-                        self.effects.add_effect(fx);
-                    }
-                }
+            KeyCode::Char('k') | KeyCode::Up if self.list.focus_previous() => {
+                let _ = tx.send(AppAction::UIAction(UIAction::FocusMode(
+                    FocusModeAction::AnimateScrollUp,
+                )));
             }
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Char('e') if self.list.len() > 0 => {
-                self.schedule_completion(300);
-                if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
-                    let duration = Duration::from_millis(300);
-                    let timer =
-                        EffectTimer::new(duration.into(), tachyonfx::Interpolation::SineOut);
-                    let c = Color::Rgb(25, 25, 25);
-                    let fx = fx::dynamic_area(
-                        area_ref,
-                        fx::parallel(&[fx::explode(2.0, 2.0, timer), fx::paint_bg(c, timer)]),
-                    );
-                    // let fx = fx::dynamic_area(area_ref, fx::fade_to_fg(c, timer));
-                    // let fx = fx::dynamic_area(area_ref, fx::dissolve(timer)); // use this for deleting tasks instead
-                    self.effects.add_effect(fx);
-                }
-                if let Some(i) = self.list.focused_index() {
-                    if i + 1 < self.shown_tasks.len() {
-                        let translate = AnimationType::TranslateFrom { x: 0, y: 10 };
-                        let translate_grow = vec![
-                            AnimationType::TranslateFrom { x: 0, y: 10 },
-                            AnimationType::ResizeFrom {
-                                dir: AnimationDirection::Horizontal,
-                                amount: -10,
-                            },
-                        ];
-                        let translate_grow = AnimationType::Composite(translate_grow);
-                        let duration = Duration::from_millis(200);
-                        let delay = Duration::from_millis(300);
-                        self.list_state.start_animation(
-                            Animation::new(
-                                AnimationType::Delay(delay, Box::new(translate_grow)),
-                                duration,
-                            ),
-                            FocusListPosition::Focused,
-                        );
-                        self.list_state.start_animation(
-                            Animation::new(
-                                AnimationType::Delay(delay, Box::new(translate)),
-                                duration,
-                            ),
-                            FocusListPosition::Next,
-                        );
-                        if let Some(area_ref) =
-                            self.list_state.get_area_ref(FocusListPosition::Next)
-                        {
-                            let fx = fx::delay(
-                                EffectTimer::new(delay.into(), tachyonfx::Interpolation::Linear),
-                                fx::dynamic_area(
-                                    area_ref,
-                                    fx::fade_from_fg(
-                                        Color::Rgb(25, 25, 25),
-                                        EffectTimer::new(
-                                            duration.into(),
-                                            tachyonfx::Interpolation::SineOut,
-                                        ),
-                                    ),
-                                ),
-                            );
-                            self.effects.add_effect(fx);
-                        }
+                if let Some((i, task)) = self.get_focused_task() {
+                    let _ = tx.send(AppAction::UIAction(UIAction::FocusMode(
+                        FocusModeAction::AnimateCompletion,
+                    )));
+                    let data = TaskData::from_task(&task);
+                    let shift_action = if i + 1 < self.shown_tasks.len() {
+                        FocusModeAction::AnimateShiftUp
                     } else {
-                        let translate = AnimationType::TranslateFrom { x: 0, y: -10 };
-                        let translate_grow = vec![
-                            AnimationType::TranslateFrom { x: 0, y: -10 },
-                            AnimationType::ResizeFrom {
-                                dir: AnimationDirection::Horizontal,
-                                amount: -10,
-                            },
-                        ];
-                        let translate_grow = AnimationType::Composite(translate_grow);
-                        let duration = Duration::from_millis(200);
-                        let delay = Duration::from_millis(300);
-                        self.list_state.start_animation(
-                            Animation::new(
-                                AnimationType::Delay(delay, Box::new(translate_grow)),
-                                duration,
-                            ),
-                            FocusListPosition::Focused,
-                        );
-                        self.list_state.start_animation(
-                            Animation::new(
-                                AnimationType::Delay(delay, Box::new(translate)),
-                                duration,
-                            ),
-                            FocusListPosition::Prev,
-                        );
-                        if let Some(area_ref) =
-                            self.list_state.get_area_ref(FocusListPosition::Prev)
-                        {
-                            let fx = fx::delay(
-                                EffectTimer::new(delay.into(), tachyonfx::Interpolation::Linear),
-                                fx::dynamic_area(
-                                    area_ref,
-                                    fx::fade_from_fg(
-                                        Color::Rgb(25, 25, 25),
-                                        EffectTimer::new(
-                                            duration.into(),
-                                            tachyonfx::Interpolation::SineOut,
-                                        ),
-                                    ),
-                                ),
-                            );
-                            self.effects.add_effect(fx);
-                        }
-                    }
+                        FocusModeAction::AnimateShiftDown
+                    };
+                    let _ = tx.send(AppAction::AfterNTicks(
+                        N_TICKS as u32 - 1,
+                        Box::new(AppAction::MultiAction(vec![
+                            AppAction::TaskAction(TaskAction::Complete, data),
+                            AppAction::UIAction(UIAction::FocusMode(
+                                FocusModeAction::RemoveFocusedItem,
+                            )),
+                            AppAction::UIAction(UIAction::FocusMode(shift_action)),
+                        ])),
+                    ));
                 }
-                // }
+            }
+            KeyCode::Esc => {
+                let _ = tx.send(AppAction::UIAction(UIAction::ExitFocusMode));
             }
             _ => {}
-        }
-        if idx != self.list.focused_index() {
-            //     let (prev, focus, next) = self.list_state.get_sub_areas();
-            //     let c = Color::Rgb(25, 25, 25);
-            //     let timer = EffectTimer::from_ms(100, Interpolation::Linear);
-            //     if let Some(a) = prev {
-            //         let fx = fx::fade_from_fg(c, timer).with_area(a);
-            //         self.effects.add_effect(fx);
-            //     }
-            //     if let Some(a) = focus {
-            //         let fx = fx::fade_from_fg(c, timer).with_area(a);
-            //         self.effects.add_effect(fx);
-            //     }
-            //     if let Some(a) = next {
-            //         let fx = fx::fade_from_fg(c, timer).with_area(a);
-            //         self.effects.add_effect(fx);
-            //     }
         }
     }
 
@@ -442,47 +201,114 @@ impl FocusModeUI {
         // Handle mouse events specific to Focus Mode here
     }
 
+    fn animate_scroll_down(&mut self) {
+        let duration = Duration::from_millis(MOTION_DURATION_MS);
+
+        // animate the focused (center) item coming from next position (bottom)
+        let translate_from_and_grow = focus_from_animation(10, -10, duration);
+        self.list_state
+            .start_animation(translate_from_and_grow, FocusListPosition::Focused);
+
+        // animate the previous (top) item coming from focused position (center)
+        let translate_from_and_shrink = focus_from_animation(10, 10, duration);
+        self.list_state
+            .start_animation(translate_from_and_shrink, FocusListPosition::Prev);
+
+        // animate the next (bottom) item coming from the bottom edge and fade in
+        let translate_from = translate_from_animation(10, duration);
+        self.list_state
+            .start_animation(translate_from, FocusListPosition::Next);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Next) {
+            fade_in(&mut self.effects, area_ref, duration);
+        }
+
+        // animate the previous (top) item going to top edge and fade out
+        let translate_to = translate_to_animation(-10, duration);
+        self.list_state
+            .start_animation(translate_to, FocusListPosition::PrevPrev);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::PrevPrev) {
+            fade_out(&mut self.effects, area_ref, duration);
+        }
+    }
+
+    fn animate_scroll_up(&mut self) {
+        let duration = Duration::from_millis(MOTION_DURATION_MS);
+
+        // animate the focused (center) item coming from previous position (top)
+        let translate_from_and_grow = focus_from_animation(-10, -10, duration);
+        self.list_state
+            .start_animation(translate_from_and_grow, FocusListPosition::Focused);
+
+        // animate the next (bottom) item coming from focused position (center)
+        let translate_from_and_shrink = focus_from_animation(-10, 10, duration);
+        self.list_state
+            .start_animation(translate_from_and_shrink, FocusListPosition::Next);
+
+        // animate the previous (top) item coming from top edge and fade in
+        let translate_from = translate_from_animation(-10, duration);
+        self.list_state
+            .start_animation(translate_from, FocusListPosition::Prev);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Prev) {
+            fade_in(&mut self.effects, area_ref, duration);
+        }
+
+        // animate the next (bottom) item going to bottom edge and fade out
+        let translate_to = translate_to_animation(10, duration);
+        self.list_state
+            .start_animation(translate_to, FocusListPosition::NextNext);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::NextNext) {
+            fade_out(&mut self.effects, area_ref, duration);
+        }
+    }
+
+    fn animate_shift_down(&mut self) {
+        let duration = Duration::from_millis(MOTION_DURATION_MS);
+
+        // animate the focused (center) item coming from previous position (top)
+        let translate_from_and_grow = focus_from_animation(-10, -10, duration);
+        self.list_state
+            .start_animation(translate_from_and_grow, FocusListPosition::Focused);
+
+        // animate the previous (top) item coming from the top edge and fade in
+        let translate_from = translate_from_animation(-10, duration);
+        self.list_state
+            .start_animation(translate_from, FocusListPosition::Prev);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Prev) {
+            fade_in(&mut self.effects, area_ref, duration);
+        }
+    }
+
+    fn animate_shift_up(&mut self) {
+        let duration = Duration::from_millis(MOTION_DURATION_MS);
+
+        // animate the focused (center) item coming from next position (bottom)
+        let translate_from_and_grow = focus_from_animation(10, -10, duration);
+        self.list_state
+            .start_animation(translate_from_and_grow, FocusListPosition::Focused);
+
+        // animate the next (bottom) item coming from the bottom edge and fade in
+        let translate_from = translate_from_animation(10, duration);
+        self.list_state
+            .start_animation(translate_from, FocusListPosition::Next);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Next) {
+            fade_in(&mut self.effects, area_ref, duration);
+        }
+    }
+
+    fn animate_completion(&mut self) {
+        // animate explosion of focused item
+        let duration = Duration::from_millis(EXPLODE_MS);
+        if let Some(area_ref) = self.list_state.get_area_ref(FocusListPosition::Focused) {
+            explode(&mut self.effects, area_ref, duration);
+        }
+    }
+
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
-        self.process_pending_completion();
         Clear.render(f.area(), f.buffer_mut());
         Block::default()
             .style(Style::default().bg(Color::Rgb(25, 25, 25)))
             .render(f.area(), f.buffer_mut());
 
-        // let main_chunks = Layout::new(
-        //     Direction::Vertical,
-        //     [Constraint::Length(3), Constraint::Fill(1)],
-        // )
-        // .split(area);
-
-        // if let Some(view) = self.current_view.as_ref() {
-        //     let header_area = Layout::new(
-        //         Direction::Horizontal,
-        //         [
-        //             Constraint::Fill(1),
-        //             Constraint::Length(20),
-        //             Constraint::Fill(1),
-        //         ],
-        //     )
-        //     .split(main_chunks[0])[1];
-
-        //     let p = Paragraph::new(format!("\n{}\n", view.get_name()))
-        //         .style(Style::default().fg(Color::LightYellow))
-        //         // .block(
-        //         //     Block::new()
-        //         //         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
-        //         //         .border_type(BorderType::Rounded),
-        //         // )
-        //         .alignment(ratatui::layout::Alignment::Center);
-        //     f.render_widget(p, header_area);
-        // }
-
-        // let items: Vec<FocusListItem> = self
-        //     .filtered_indices
-        //     .iter()
-        //     .filter_map(|&idx| self.all_tasks.get(idx))
-        //     .map(|task| create_list_item(task))
-        //     .collect();
         let items: Vec<FocusListItem> = self
             .shown_tasks
             .iter()
@@ -562,3 +388,69 @@ fn render_no_tasks(f: &mut Frame, area: Rect) {
         r,
     );
 }
+
+fn translate_from_animation(translate_y: i32, duration: Duration) -> Animation {
+    let anim = AnimationType::TranslateFrom {
+        x: 0,
+        y: translate_y,
+    };
+    Animation::new(anim, duration)
+}
+
+fn translate_to_animation(translate_y: i32, duration: Duration) -> Animation {
+    let anim = AnimationType::TranslateTo {
+        x: 0,
+        y: translate_y,
+    };
+    Animation::new(anim, duration)
+}
+
+fn focus_from_animation(translate_y: i32, resize_horizontal: i32, duration: Duration) -> Animation {
+    let anim = vec![
+        AnimationType::TranslateFrom {
+            x: 0,
+            y: translate_y,
+        },
+        AnimationType::ResizeFrom {
+            dir: AnimationDirection::Horizontal,
+            amount: resize_horizontal,
+        },
+    ];
+    Animation::new(AnimationType::Composite(anim), duration)
+}
+
+fn fade_in(effects: &mut EffectManager<()>, area_ref: RefRect, duration: Duration) {
+    effects.add_effect(fx::dynamic_area(
+        area_ref,
+        fx::fade_from_fg(
+            Color::Rgb(25, 25, 25),
+            EffectTimer::new(duration.into(), Interpolation::SineOut),
+        ),
+    ));
+}
+
+fn fade_out(effects: &mut EffectManager<()>, area_ref: RefRect, duration: Duration) {
+    effects.add_effect(fx::dynamic_area(
+        area_ref,
+        fx::fade_to_fg(
+            Color::Rgb(25, 25, 25),
+            EffectTimer::new(duration.into(), Interpolation::SineOut),
+        ),
+    ));
+}
+
+fn explode(effects: &mut EffectManager<()>, area_ref: RefRect, duration: Duration) {
+    let timer = EffectTimer::new(duration.into(), Interpolation::SineOut);
+    let c = Color::Rgb(25, 25, 25);
+    let fx = fx::dynamic_area(
+        area_ref,
+        fx::parallel(&[fx::explode(2.0, 2.0, timer), fx::paint_bg(c, timer)]),
+    );
+    effects.add_effect(fx);
+}
+
+// fn dissolve(effects: &mut EffectManager<()>, area_ref: RefRect, duration: Duration) {
+//     let timer = EffectTimer::new(duration.into(), Interpolation::SineOut);
+//     let fx = fx::dynamic_area(area_ref, fx::dissolve(timer));
+//     effects.add_effect(fx);
+// }

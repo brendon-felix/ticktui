@@ -10,8 +10,13 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
 };
 use ticks::tasks::{Task, TaskID};
+use tokio::sync::mpsc::UnboundedSender;
 
-use crate::tasks::{is_due_this_week, is_due_today, is_due_tomorrow, is_in_inbox, is_overdue};
+use crate::{
+    app::AppAction,
+    tasks::{is_due_this_week, is_due_today, is_due_tomorrow, is_in_inbox, is_overdue},
+    ui::{UIAction, normalmode::NormalModeAction},
+};
 // use ticks::projects::ProjectID;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,16 +75,16 @@ impl View {
     }
 }
 
-pub struct ViewList {
+pub struct ViewSelector {
     pub views: Vec<View>,
     list_state: ListState,
-    pub view_changed: bool,
     style: Style,
     current_block: Option<Block<'static>>,
+    tx: UnboundedSender<AppAction>,
 }
 
-impl ViewList {
-    pub fn new() -> Self {
+impl ViewSelector {
+    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         let current_block = Some(
             Block::default()
                 .borders(Borders::ALL)
@@ -94,9 +99,9 @@ impl ViewList {
                 View::All,
             ],
             list_state: ListState::default().with_selected(Some(0)),
-            view_changed: true,
             style: Style::default(),
             current_block,
+            tx,
         }
     }
 
@@ -144,7 +149,13 @@ impl ViewList {
             KeyCode::Char('G') => self.list_state.select_last(),
             _ => {}
         }
-        self.view_changed = idx != self.list_state.selected();
+        if idx != self.list_state.selected() {
+            if let Some(view) = self.get_current_view() {
+                let _ = self.tx.send(AppAction::UIAction(UIAction::NormalMode(
+                    NormalModeAction::SwitchView(view.clone()),
+                )));
+            }
+        }
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, _last_frame: Instant) {

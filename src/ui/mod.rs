@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
+use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
 
 mod animate;
@@ -12,7 +12,7 @@ pub mod popup;
 mod taskeditor;
 mod tasklist;
 mod utils;
-mod views;
+mod viewselector;
 
 use focusmode::FocusModeUI;
 use normalmode::NormalModeUI;
@@ -26,7 +26,7 @@ use crate::{
         focusmode::FocusModeAction,
         normalmode::NormalModeAction,
         popup::{Popup, confirm::ConfirmationPopup, debug::DebugPopup},
-        views::View,
+        viewselector::View,
     },
 };
 
@@ -60,7 +60,7 @@ impl AppUI {
     pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         Self {
             mode: AppUIMode::Normal,
-            focus_ui: FocusModeUI::new(tx.clone()),
+            focus_ui: FocusModeUI::new(),
             normal_ui: NormalModeUI::new(tx.clone()),
             popup: None,
             debug_popup: None,
@@ -68,7 +68,7 @@ impl AppUI {
         }
     }
 
-    pub fn execute_action(&mut self, action: UIAction, tx: &UnboundedSender<AppAction>) {
+    pub fn execute_action(&mut self, action: UIAction, _tx: &UnboundedSender<AppAction>) {
         match action {
             UIAction::EnterFocusMode(view) => {
                 self.mode = AppUIMode::Focus;
@@ -81,7 +81,7 @@ impl AppUI {
                 self.normal_ui.execute_action(normal_action);
             }
             UIAction::FocusMode(focus_action) => {
-                // self.focus_ui.execute_action(focus_action);
+                self.focus_ui.execute_action(focus_action);
             }
             UIAction::Confirm(pending_action) => {
                 self.confirm(*pending_action);
@@ -158,17 +158,17 @@ impl AppUI {
     //     }
     // }
 
-    pub fn allow_quit(&self) -> bool {
+    pub fn allow_key_cmd(&self) -> bool {
         match &self.popup {
-            Some(p) => p.allow_quit(),
+            Some(p) => p.allow_key_cmd(),
             None => match self.mode {
-                AppUIMode::Focus => self.focus_ui.allow_quit(),
-                AppUIMode::Normal => self.normal_ui.allow_quit(),
+                AppUIMode::Focus => self.focus_ui.allow_key_cmd(),
+                AppUIMode::Normal => self.normal_ui.allow_key_cmd(),
             },
         }
     }
 
-    pub fn handle_key_event(&mut self, key_event: KeyEvent) {
+    pub fn handle_key_event(&mut self, key_event: KeyEvent, tx: &UnboundedSender<AppAction>) {
         // 'q' and 'ctrl+c' are handled by app.rs
         if let Some(debug_popup) = &mut self.debug_popup {
             debug_popup.handle_key_event(key_event);
@@ -178,30 +178,9 @@ impl AppUI {
             popup.handle_key_event(key_event);
             return;
         }
-        match key_event.code {
-            KeyCode::F(1) if self.allow_quit() => {
-                let _ = self.tx.send(AppAction::UIAction(UIAction::DebugMsg(
-                    format!("{:?}", self.tx).into(),
-                )));
-            }
-            KeyCode::Char('f') if self.mode == AppUIMode::Normal && self.normal_ui.allow_quit() => {
-                let view = self
-                    .normal_ui
-                    .get_current_view()
-                    .cloned()
-                    .unwrap_or(View::Inbox);
-                self.mode = AppUIMode::Focus;
-                self.focus_ui.set_view(view);
-            }
-            KeyCode::Esc if self.mode == AppUIMode::Focus && self.allow_quit() => {
-                self.mode = AppUIMode::Normal
-            }
-            // KeyCode::F(2) => self.mode = AppUIMode::Normal,
-            // KeyCode::Char('n') if self.allow_quit() => self.start_new_task(),
-            _ => match self.mode {
-                AppUIMode::Focus => self.focus_ui.handle_key_event(key_event),
-                AppUIMode::Normal => self.normal_ui.handle_key_event(key_event),
-            },
+        match self.mode {
+            AppUIMode::Focus => self.focus_ui.handle_key_event(key_event, tx),
+            AppUIMode::Normal => self.normal_ui.handle_key_event(key_event, tx),
         }
     }
 

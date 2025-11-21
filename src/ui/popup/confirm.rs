@@ -68,7 +68,7 @@ impl Popup for ConfirmationPopup {
         // Handle mouse events if necessary
     }
 
-    fn allow_quit(&self) -> bool {
+    fn allow_key_cmd(&self) -> bool {
         false
     }
 

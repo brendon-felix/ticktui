@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use chrono::{Local, TimeZone, Utc};
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -14,7 +14,7 @@ use tachyonfx::{
 };
 use ticks::tasks::{Task, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
-use tui_textarea::{Input, Key};
+use tui_textarea::Input;
 
 use crate::{
     app::AppAction,
@@ -279,27 +279,38 @@ impl TaskEditor {
     }
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {
-        let input: Input = key_event.into();
-        if let Input {
-            key: Key::Enter,
-            ctrl: false,
-            alt: true,
-            shift: false,
-        } = input
-        {
-            let _ = self
-                .tx
-                .send(AppAction::UIAction(UIAction::DebugMsg("Test".into())));
-            // if self.unsaved_changes {
-            let data = self.parse_inputs();
-            let action = AppAction::MultiAction(vec![
-                AppAction::TaskAction(TaskAction::Create, data),
-                AppAction::UIAction(UIAction::NormalMode(NormalModeAction::ExitTaskEditor)),
-                AppAction::RefreshData,
-            ]);
-            let _ = self.tx.send(action);
-            return;
+        match key_event {
+            KeyEvent {
+                code: KeyCode::Enter,
+                modifiers: KeyModifiers::CONTROL,
+                kind: _,
+                state: _,
+            } => {
+                let _ = self
+                    .tx
+                    .send(AppAction::UIAction(UIAction::DebugMsg("Test".into())));
+                // if self.unsaved_changes {
+                let data = self.parse_inputs();
+                let action = AppAction::MultiAction(vec![
+                    AppAction::TaskAction(TaskAction::Create, data),
+                    AppAction::UIAction(UIAction::NormalMode(NormalModeAction::ExitTaskEditor)),
+                    AppAction::RefreshData,
+                ]);
+                let _ = self.tx.send(action);
+                return;
+            }
+            _ => {}
         }
+        let input: Input = key_event.into();
+        // if let Input {
+        //     key: Key::Enter,
+        //     ctrl: true,
+        //     alt: false,
+        //     shift: false,
+        // } = input
+        // {
+        //     return;
+        // }
         if let Some(mode) = self.editor.get_mode() {
             let action_opt = if let Some(pending_action) = self.editor.get_pending_action() {
                 match handlers::handle_pending_action_input(input, pending_action) {

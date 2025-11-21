@@ -21,8 +21,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-pub const TICK_RATE: f64 = 4.0;
-const FRAME_RATE: f64 = 60.0;
+const TICK_RATE: f64 = 10.0; // 10 ticks/sec
+pub const TICK_PERIOD_MS: u64 = (1000.0 / TICK_RATE) as u64;
+const FRAME_RATE: f64 = 60.0; // 60 frames/sec
 
 #[derive(Clone, Debug)]
 pub enum Event {

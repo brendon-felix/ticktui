@@ -120,74 +120,6 @@ pub async fn fetch_all_tasks(client: &TickTick) -> Result<Vec<Task>> {
     Ok(all_tasks)
 }
 
-// pub async fn fetch_project_tasks(
-//     client: &TickTick,
-//     project_id: &ProjectID,
-// ) -> Result<Vec<Task>, String> {
-//     match client.get_project(project_id).await {
-//         Ok(project) => match project.get_tasks().await {
-//             Ok(tasks) => Ok(tasks),
-//             Err(e) => Err(format!("Failed to fetch tasks from project: {:?}", e)),
-//         },
-//         Err(e) => Err(format!("Failed to get project: {:?}", e)),
-//     }
-// }
-
-// pub async fn fetch_inbox_tasks(client: &TickTick) -> Result<Vec<Task>> {
-//     let inbox_id = ProjectID("inbox".to_string());
-//     client
-//         .get_project_data(&inbox_id)
-//         .await
-//         .map_err(|e| anyhow::anyhow!("Failed to fetch inbox tasks: {:?}", e))
-//         .map(|project_data| project_data.tasks)
-// }
-
-// pub async fn fetch_today_tasks(client: &TickTick) -> Result<Vec<Task>, String> {
-//     let now = Local::now();
-//     let today_end = now
-//         .date_naive()
-//         .and_hms_opt(23, 59, 59)
-//         .unwrap()
-//         .and_local_timezone(Local)
-//         .unwrap()
-//         .with_timezone(&chrono::Utc);
-
-//     // Fetch all tasks from all projects
-//     let all_tasks = match client.get_all_tasks_in_projects().await {
-//         Ok(tasks) => tasks,
-//         Err(e) => return Err(format!("Failed to fetch tasks: {:?}", e)),
-//     };
-
-//     // Fetch inbox tasks
-//     let inbox_id = ProjectID("inbox".to_string());
-//     let inbox_tasks = match client.get_project_data(&inbox_id).await {
-//         Ok(project_data) => project_data.tasks,
-//         Err(e) => return Err(format!("Failed to fetch inbox tasks: {:?}", e)),
-//     };
-
-//     let mut today_tasks = Vec::new();
-
-//     // Filter tasks from all projects that are due today or overdue
-//     for task in all_tasks {
-//         let task_due = task.due_date;
-//         // Check if due_date is set (not epoch) and is today or earlier (overdue)
-//         if task_due.timestamp() > 0 && task_due <= today_end {
-//             today_tasks.push(task);
-//         }
-//     }
-
-//     // Filter inbox tasks that are due today or overdue
-//     for task in inbox_tasks {
-//         let task_due = task.due_date;
-//         // Check if due_date is set (not epoch) and is today or earlier (overdue)
-//         if task_due.timestamp() > 0 && task_due <= today_end {
-//             today_tasks.push(task);
-//         }
-//     }
-
-//     Ok(today_tasks)
-// }
-
 pub fn is_overdue(now: DateTime<Local>, task: &Task) -> bool {
     let now = now
         .date_naive()
@@ -275,104 +207,10 @@ pub fn is_due_this_week(now: DateTime<Local>, task: &Task) -> bool {
 
 pub fn is_in_inbox(task: &Task) -> bool {
     task.project_id.0.starts_with("inbox")
-    // true
 }
 
 // pub fn is_in_project(task: &Task, project_id: &ProjectID) -> bool {
 //     &task.project_id.0 == &project_id.0
-// }
-
-// pub async fn create_task(
-//     client: &TickTick,
-//     title: String,
-//     project: Option<ProjectID>,
-//     content: Option<String>,
-//     _description: Option<String>,
-//     _priority: Option<TaskPriority>,
-//     date: Option<NaiveDate>,
-//     time: Option<NaiveTime>,
-// ) -> Result<(), String> {
-//     let mut builder = ticks::tasks::Task::builder(client, &title);
-//     let project_id = project.unwrap_or(ProjectID("inbox".to_string()));
-//     builder = builder.project_id(project_id);
-
-//     if let Some(c) = content {
-//         builder = builder.content(&c);
-//     }
-
-//     if let Some(d) = date {
-//         let datetime = if let Some(t) = time {
-//             d.and_time(t)
-//         } else {
-//             builder = builder.is_all_day(true);
-//             d.and_hms_opt(0, 0, 0).unwrap()
-//         };
-//         let utc_datetime = chrono::Local
-//             .from_local_datetime(&datetime)
-//             .unwrap()
-//             .to_utc();
-//         builder = builder.due_date(utc_datetime);
-//     }
-//     match builder.build_and_publish().await {
-//         Ok(_) => Ok(()),
-//         Err(e) => Err(format!("Failed to create task: {:?}", e)),
-//     }
-// }
-
-// pub async fn edit_task(
-//     task: &mut Task,
-//     title: Option<String>,
-//     project: Option<ProjectID>,
-//     content: Option<String>,
-//     _description: Option<String>,
-//     _priority: Option<TaskPriority>,
-//     date: Option<NaiveDate>,
-//     time: Option<NaiveTime>,
-// ) -> Result<(), String> {
-//     if let Some(t) = title {
-//         task.title = t;
-//     }
-//     if let Some(p) = project {
-//         task.project_id = p;
-//     }
-//     if let Some(c) = content {
-//         task.content = c;
-//     }
-//     if let Some(d) = date {
-//         let datetime = if let Some(t) = time {
-//             // When time is provided, ensure the task is not all-day
-//             task.is_all_day = false;
-//             d.and_time(t)
-//         } else {
-//             task.is_all_day = true;
-//             d.and_hms_opt(0, 0, 0).unwrap()
-//         };
-//         let utc_datetime = chrono::Local
-//             .from_local_datetime(&datetime)
-//             .unwrap()
-//             .to_utc();
-//         task.due_date = utc_datetime;
-//         task.start_date = utc_datetime;
-//     } else if time.is_some() {
-//         // Handle case where only time is being updated without changing the date
-//         if let Some(t) = time {
-//             // If we have a valid due_date and we're setting a time, update to non-all-day
-//             if task.due_date.timestamp() > 0 {
-//                 task.is_all_day = false;
-//                 let current_date = task.due_date.with_timezone(&chrono::Local).date_naive();
-//                 let datetime = current_date.and_time(t);
-//                 let utc_datetime = chrono::Local
-//                     .from_local_datetime(&datetime)
-//                     .unwrap()
-//                     .to_utc();
-//                 task.due_date = utc_datetime;
-//                 task.start_date = utc_datetime;
-//             }
-//         }
-//     }
-//     task.publish_changes()
-//         .await
-//         .map_err(|e| format!("Failed to edit task: {:?}", e))
 // }
 
 pub async fn create_task(client: &TickTick, data: TaskData) -> Result<(), String> {

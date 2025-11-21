@@ -168,16 +168,38 @@ impl<'a> FocusList<'a> {
         }
     }
 
-    pub fn focus_next(&mut self) {
-        let next = self.focused_index.map_or(0, |i| i.saturating_add(1));
-        self.focus(Some(next));
+    pub fn focus_next(&mut self) -> bool {
+        // let next = self.focused_index.map_or(0, |i| i.saturating_add(1));
+        // self.focus(Some(next));
+        if let Some(current) = self.focused_index {
+            let next = current.saturating_add(1);
+            if next < self.items.len() {
+                self.focused_index = Some(next);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
-    pub fn focus_previous(&mut self) {
-        let previous = self
-            .focused_index
-            .map_or(usize::MAX, |i| i.saturating_sub(1));
-        self.focus(Some(previous));
+    pub fn focus_previous(&mut self) -> bool {
+        // let previous = self
+        //     .focused_index
+        //     .map_or(usize::MAX, |i| i.saturating_sub(1));
+        // self.focus(Some(previous));
+        if let Some(current) = self.focused_index {
+            if current > 0 {
+                let previous = current.saturating_sub(1);
+                self.focused_index = Some(previous);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 
     pub fn focus_first(&mut self) {

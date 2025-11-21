@@ -37,7 +37,7 @@ pub enum AnimationType {
 
 #[derive(Debug, Clone)]
 pub struct Animation {
-    anim_type: AnimationType,
+    pub anim_type: AnimationType,
     start_instant: Instant,
     duration: Duration,
 }

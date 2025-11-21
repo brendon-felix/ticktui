@@ -24,16 +24,22 @@ pub enum AppAction {
     TaskAction(TaskAction, TaskData),
     UIAction(UIAction),
     MultiAction(Vec<AppAction>),
+    AfterNTicks(u32, Box<AppAction>),
+}
+
+pub struct PendingAction {
+    ticks: u32,
+    action: AppAction,
 }
 
 pub struct App {
     client: Arc<TickTick>,
     cached_tasks: Arc<Vec<Arc<Task>>>,
     pending_tasks: Arc<Mutex<Option<Vec<Task>>>>,
+    pending_action: Option<PendingAction>,
     ti: AppTerminal,
     ui: AppUI,
     quitting: bool,
-    tick_count: u32,
     tx: UnboundedSender<AppAction>,
     rx: UnboundedReceiver<AppAction>,
 }
@@ -43,18 +49,18 @@ impl App {
         let (tx, rx) = mpsc::unbounded_channel();
         let cached_tasks = Arc::new(Vec::new());
         let pending_tasks = Arc::new(Mutex::new(None));
+        let pending_action = None;
         let ti = AppTerminal::new()?;
         let ui = AppUI::new(tx.clone());
         let quitting = false;
-        let tick_count = 0;
         Ok(Self {
             client,
             cached_tasks,
             pending_tasks,
+            pending_action,
             ti,
             ui,
             quitting,
-            tick_count,
             tx,
             rx,
         })
@@ -135,24 +141,12 @@ impl App {
         tx: &UnboundedSender<AppAction>,
     ) -> Result<()> {
         match key_event.code {
-            KeyCode::Char('q') => {
-                if !self.ui.allow_quit() {
-                    self.ui.handle_key_event(key_event);
-                } else {
-                    tx.send(AppAction::Quit)?;
-                }
-            }
-            KeyCode::Char('r') => {
-                if !self.ui.allow_quit() {
-                    self.ui.handle_key_event(key_event);
-                } else {
-                    tx.send(AppAction::RefreshData)?;
-                }
-            }
+            KeyCode::Char('q') if self.ui.allow_key_cmd() => tx.send(AppAction::Quit)?,
+            KeyCode::Char('r') if self.ui.allow_key_cmd() => tx.send(AppAction::RefreshData)?,
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 tx.send(AppAction::Quit)?
             }
-            _ => self.ui.handle_key_event(key_event),
+            _ => self.ui.handle_key_event(key_event, tx),
         }
         Ok(())
     }
@@ -169,12 +163,16 @@ impl App {
     fn execute_action(&mut self, action: AppAction, tx: &UnboundedSender<AppAction>) -> Result<()> {
         match action {
             AppAction::Tick => {
-                self.tick_count += 1;
-                // if self.tick_count >= 120 {
-                //     self.tick_count = 0;
-                //     tx.send(AppAction::RefreshData)?;
-                // }
                 self.ui.next_tick();
+                if let Some(pending) = &mut self.pending_action {
+                    if pending.ticks > 0 {
+                        pending.ticks -= 1;
+                    } else {
+                        let act = pending.action.clone();
+                        self.pending_action = None;
+                        self.execute_action(act, tx)?;
+                    }
+                }
             }
             AppAction::Render(last_frame) => self.render(last_frame)?,
             AppAction::Resize(w, h) => {
@@ -185,14 +183,17 @@ impl App {
             AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
             AppAction::TaskAction(action, data) => self.execute_task_action(action, data),
-            // AppAction::Debug(msg) => self.ui.debug(msg),
-            // AppAction::Confirm(action) => self.ui.confirm(*action),
-            // AppAction::ClosePopup => self.ui.close_popup(),
             AppAction::UIAction(action) => self.ui.execute_action(action, tx),
             AppAction::MultiAction(actions) => {
                 for act in actions {
                     self.execute_action(act, tx)?;
                 }
+            }
+            AppAction::AfterNTicks(n_ticks, action) => {
+                self.pending_action = Some(PendingAction {
+                    ticks: n_ticks,
+                    action: *action,
+                });
             }
         }
         Ok(())

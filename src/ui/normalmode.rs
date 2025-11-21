@@ -13,40 +13,40 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     app::AppAction,
     ui::{
+        UIAction,
         editor::EditorMode,
         taskeditor::TaskEditor,
         tasklist::TaskList,
-        views::{View, ViewList},
+        viewselector::{View, ViewSelector},
     },
 };
 
 #[derive(Debug, Clone)]
 pub enum NormalModeAction {
-    EditSelectedTask,
+    EditTask(Arc<Task>),
     CreateNewTask,
     ExitTaskEditor,
-    SwitchView,
+    SwitchView(View),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ActivePane {
-    ViewList,
+    ViewSelector,
     TaskList,
     TaskEditor,
 }
 
 pub struct NormalModeUI {
-    view_list: ViewList,
+    view_selector: ViewSelector,
     task_list: TaskList,
     task_editor: TaskEditor,
     active_pane: ActivePane,
     effects: EffectManager<()>,
-    // tx: UnboundedSender<AppAction>,
 }
 impl NormalModeUI {
     pub fn new(tx: UnboundedSender<AppAction>) -> Self {
-        let mut view_list = ViewList::new();
-        view_list.activate();
+        let mut view_selector = ViewSelector::new(tx.clone());
+        view_selector.activate();
         let mut task_list = TaskList::new(Arc::new(vec![]), tx.clone());
         task_list.deactivate();
         let mut task_editor = TaskEditor::new(tx.clone());
@@ -57,28 +57,26 @@ impl NormalModeUI {
         let fx = fx::sweep_in(Motion::UpToDown, 10, 0, c, timer);
         effects.add_effect(fx);
         Self {
-            view_list,
+            view_selector,
             task_list,
             task_editor,
-            active_pane: ActivePane::ViewList,
+            active_pane: ActivePane::ViewSelector,
             effects,
-            // tx,
         }
     }
 
     pub fn execute_action(&mut self, action: NormalModeAction) {
         match action {
-            NormalModeAction::EditSelectedTask => {
-                if let Some(selected_task) = self.task_list.get_current_task() {
-                    self.task_editor.load_task(&selected_task);
-                    self.active_pane = ActivePane::TaskEditor;
-                    self.task_list.deactivate();
-                    self.task_editor.activate();
-                }
+            NormalModeAction::EditTask(task) => {
+                self.task_editor.load_task(&task);
+                self.active_pane = ActivePane::TaskEditor;
+                self.view_selector.deactivate();
+                self.task_list.deactivate();
+                self.task_editor.activate();
             }
             NormalModeAction::CreateNewTask => {
                 self.task_editor.clear_all_fields();
-                if let Some(view) = self.view_list.get_current_view() {
+                if let Some(view) = self.view_selector.get_current_view() {
                     match view {
                         View::Today => self.task_editor.set_due_date_content("Today"),
                         View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
@@ -88,6 +86,7 @@ impl NormalModeUI {
                     }
                 }
                 self.active_pane = ActivePane::TaskEditor;
+                self.view_selector.deactivate();
                 self.task_list.deactivate();
                 self.task_editor.activate();
                 self.task_editor.set_mode(EditorMode::Insert);
@@ -101,36 +100,18 @@ impl NormalModeUI {
                 self.task_editor.clear_all_fields();
                 self.active_pane = ActivePane::TaskList;
                 self.task_editor.deactivate();
+                self.view_selector.deactivate();
                 self.task_list.activate();
             }
-            NormalModeAction::SwitchView => {
-                self.apply_current_view_filter();
+            NormalModeAction::SwitchView(view) => {
+                self.task_list.filter_by_view(&view);
                 self.task_list.clear_selection();
-                self.task_editor.clear_all_fields();
             }
         }
     }
 
-    /// Updates the task editor if the currently selected task has changed.
-    /// This is called after task filtering or task list navigation.
-    // fn update_task_editor_if_needed(&mut self) {
-    //     if self.task_list.task_changed {
-    //         if let Some(selected_task) = self.task_list.get_current_task() {
-    //             self.task_editor.load_task(&selected_task);
-    //         } else {
-    //             // Clear task editor when no task is selected (empty list)
-    //             self.task_editor.clear_all_fields();
-    //         }
-    //         self.task_list.task_changed = false;
-    //     }
-    // }
-
-    pub fn get_current_view(&self) -> Option<&View> {
-        self.view_list.get_current_view()
-    }
-
     fn apply_current_view_filter(&mut self) {
-        if let Some(current_view) = self.view_list.get_current_view() {
+        if let Some(current_view) = self.view_selector.get_current_view() {
             self.task_list.filter_by_view(current_view);
         }
     }
@@ -143,117 +124,76 @@ impl NormalModeUI {
         // self.update_task_editor_if_needed();
     }
 
-    // /// Sets the view filter programmatically and applies it to the task list.
-    // /// This can be used for testing or external view changes.
-    // pub fn set_view_filter(&mut self, view: &View) {
-    //     // Update the view list selection to match the provided view
-    //     if let Some(index) = self.view_list.views.iter().position(|v| v == view) {
-    //         self.view_list.set_selection(index);
-    //     }
-    //     self.task_list.filter_by_view(view);
-    //     if let Some(selected_task) = self.task_list.get_current_task() {
-    //         self.task_editor.load_task(&selected_task);
-    //     }
-    // }
-
-    pub fn allow_quit(&self) -> bool {
+    pub fn allow_key_cmd(&self) -> bool {
         match self.active_pane {
-            ActivePane::ViewList => true,
+            ActivePane::ViewSelector => true,
             ActivePane::TaskList => true,
             ActivePane::TaskEditor => !self.task_editor.is_in_insert_mode(),
         }
     }
 
-    pub fn handle_key_event(&mut self, key_event: KeyEvent) {
+    pub fn handle_key_event(&mut self, key_event: KeyEvent, tx: &UnboundedSender<AppAction>) {
         match self.active_pane {
-            ActivePane::ViewList => {
-                match key_event.code {
-                    KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
-                        self.active_pane = ActivePane::TaskList;
-                        self.view_list.deactivate();
-                        self.task_list.activate();
-                        // if let Some(selected_task) = self.task_list.get_current_task() {
-                        //     self.task_editor.load_task(&selected_task);
-                        // }
-                    }
-                    KeyCode::Char('n') => {
-                        // self.task_list.insert_new_task();
-                        self.task_editor.clear_all_fields();
-                        if let Some(view) = self.view_list.get_current_view() {
-                            match view {
-                                View::Today => self.task_editor.set_due_date_content("Today"),
-                                View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
-                                View::Week => self.task_editor.set_due_date_content("Today"),
-                                // View::Inbox => self.task_editor.set_project_content(""),
-                                _ => {}
-                            }
-                        }
-                        self.active_pane = ActivePane::TaskEditor;
-                        self.view_list.deactivate();
-                        self.task_editor.activate();
-                        self.task_editor.set_mode(EditorMode::Insert);
-                    }
-                    _ => self.view_list.handle_key_event(key_event),
+            ActivePane::ViewSelector => match key_event.code {
+                // enter task list
+                KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+                    self.active_pane = ActivePane::TaskList;
+                    self.view_selector.deactivate();
+                    self.task_list.activate();
                 }
-                if self.view_list.view_changed {
-                    self.apply_current_view_filter();
-                    self.task_list.clear_selection();
-                    self.task_editor.clear_all_fields();
-                    self.view_list.view_changed = false;
+                // create new task
+                KeyCode::Char('n') => {
+                    let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
+                        NormalModeAction::CreateNewTask,
+                    )));
                 }
-            }
-            ActivePane::TaskList => {
-                match key_event.code {
-                    KeyCode::Left | KeyCode::Char('h') => {
-                        self.active_pane = ActivePane::ViewList;
-                        // self.task_list.clear_selection();
-                        self.task_editor.clear_all_fields();
-                        self.task_list.deactivate();
-                        self.view_list.activate();
+                KeyCode::Char('f') if self.allow_key_cmd() => {
+                    if let Some(view) = self.view_selector.get_current_view() {
+                        let _ =
+                            tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
                     }
-                    // KeyCode::Right | KeyCode::Char('l') => {
-                    //     self.active_pane = ActivePane::TaskEditor;
-                    //     self.task_list.deactivate();
-                    //     self.task_editor.activate();
-                    // }
-                    KeyCode::Enter => {
-                        if !self.task_list.is_empty() {
-                            if let Some(selected_task) = self.task_list.get_current_task() {
-                                self.task_editor.load_task(&selected_task);
-                            }
-                            self.active_pane = ActivePane::TaskEditor;
-                            self.task_list.deactivate();
-                            self.task_editor.activate();
-                        }
-                    }
-                    KeyCode::Char('n') => {
-                        // self.task_list.insert_new_task();
-                        self.task_editor.clear_all_fields();
-                        if let Some(view) = self.view_list.get_current_view() {
-                            match view {
-                                View::Today => self.task_editor.set_due_date_content("Today"),
-                                View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
-                                View::Week => self.task_editor.set_due_date_content("Today"),
-                                // View::Inbox => self.task_editor.set_project_content(""),
-                                _ => {}
-                            }
-                        }
-                        self.active_pane = ActivePane::TaskEditor;
-                        self.task_list.deactivate();
-                        self.task_editor.activate();
-                        self.task_editor.set_mode(EditorMode::Insert);
-                    }
-                    _ => self.task_list.handle_key_event(key_event),
                 }
-            }
+                _ => self.view_selector.handle_key_event(key_event),
+            },
+            ActivePane::TaskList => match key_event.code {
+                // enter view selector
+                KeyCode::Left | KeyCode::Char('h') => {
+                    self.active_pane = ActivePane::ViewSelector;
+                    self.task_list.deactivate();
+                    self.view_selector.activate();
+                }
+                // edit selected task
+                KeyCode::Enter => {
+                    if !self.task_list.is_empty()
+                        && let Some(task) = self.task_list.get_current_task()
+                    {
+                        let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
+                            NormalModeAction::EditTask(task),
+                        )));
+                    }
+                }
+                // create new task
+                KeyCode::Char('n') => {
+                    let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
+                        NormalModeAction::CreateNewTask,
+                    )));
+                }
+                KeyCode::Char('f') if self.allow_key_cmd() => {
+                    if let Some(view) = self.view_selector.get_current_view() {
+                        let _ =
+                            tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
+                    }
+                }
+                _ => self.task_list.handle_key_event(key_event),
+            },
             ActivePane::TaskEditor => match key_event.code {
                 // KeyCode::Left | KeyCode::Char('h') => {
                 //     if self.task_editor.is_in_insert_mode() {
                 //         self.task_editor.handle_key_event(key_event);
                 //     } else {
-                //         self.active_pane = ActivePane::ViewList;
+                //         self.active_pane = ActivePane::ViewSelector;
                 //         self.task_editor.deactivate();
-                //         self.view_list.activate();
+                //         self.view_selector.activate();
                 //     }
                 // }
                 KeyCode::Esc => {
@@ -307,9 +247,9 @@ impl NormalModeUI {
         )
         .split(chunks[0]);
 
-        self.view_list.draw(f, left_chunks[0], last_frame);
+        self.view_selector.draw(f, left_chunks[0], last_frame);
         match self.active_pane {
-            ActivePane::ViewList | ActivePane::TaskList => {
+            ActivePane::ViewSelector | ActivePane::TaskList => {
                 self.task_list.draw(f, chunks[1], last_frame);
             }
             ActivePane::TaskEditor => {
