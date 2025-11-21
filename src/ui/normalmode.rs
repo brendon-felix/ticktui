@@ -134,86 +134,95 @@ impl NormalModeUI {
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent, tx: &UnboundedSender<AppAction>) {
         match self.active_pane {
-            ActivePane::ViewSelector => match key_event.code {
-                // enter task list
-                KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+            ActivePane::ViewSelector => self.handle_key_event_view_selector(key_event, tx),
+            ActivePane::TaskList => self.handle_key_event_task_list(key_event, tx),
+            ActivePane::TaskEditor => self.handle_key_event_task_editor(key_event),
+        }
+    }
+
+    pub fn handle_key_event_view_selector(
+        &mut self,
+        key_event: KeyEvent,
+        tx: &UnboundedSender<AppAction>,
+    ) {
+        match key_event.code {
+            // enter task list
+            KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
+                self.active_pane = ActivePane::TaskList;
+                self.view_selector.deactivate();
+                self.task_list.activate();
+            }
+            // create new task
+            KeyCode::Char('n') => {
+                let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
+                    NormalModeAction::CreateNewTask,
+                )));
+            }
+            KeyCode::Char('f') if self.allow_key_cmd() => {
+                if let Some(view) = self.view_selector.get_current_view() {
+                    let _ = tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
+                }
+            }
+            _ => self.view_selector.handle_key_event(key_event),
+        }
+    }
+
+    pub fn handle_key_event_task_list(
+        &mut self,
+        key_event: KeyEvent,
+        tx: &UnboundedSender<AppAction>,
+    ) {
+        match key_event.code {
+            // enter view selector
+            KeyCode::Left | KeyCode::Char('h') => {
+                self.active_pane = ActivePane::ViewSelector;
+                self.task_list.deactivate();
+                self.view_selector.activate();
+            }
+            // edit selected task
+            KeyCode::Enter => {
+                if !self.task_list.is_empty()
+                    && let Some(task) = self.task_list.get_current_task()
+                {
+                    let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
+                        NormalModeAction::EditTask(task),
+                    )));
+                }
+            }
+            // create new task
+            KeyCode::Char('n') => {
+                let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
+                    NormalModeAction::CreateNewTask,
+                )));
+            }
+            KeyCode::Char('f') if self.allow_key_cmd() => {
+                if let Some(view) = self.view_selector.get_current_view() {
+                    let _ = tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
+                }
+            }
+            _ => self.task_list.handle_key_event(key_event),
+        }
+    }
+
+    pub fn handle_key_event_task_editor(&mut self, key_event: KeyEvent) {
+        match key_event.code {
+            KeyCode::Esc => {
+                if self.task_editor.is_in_insert_mode() {
+                    self.task_editor.handle_key_event(key_event);
+                } else {
+                    if self.task_editor.unsaved_changes {
+                        if let Some(selected_task) = self.task_list.get_current_task() {
+                            self.task_editor.load_task(&selected_task);
+                        } else {
+                            self.task_editor.clear_all_fields();
+                        }
+                    }
                     self.active_pane = ActivePane::TaskList;
-                    self.view_selector.deactivate();
+                    self.task_editor.deactivate();
                     self.task_list.activate();
                 }
-                // create new task
-                KeyCode::Char('n') => {
-                    let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
-                        NormalModeAction::CreateNewTask,
-                    )));
-                }
-                KeyCode::Char('f') if self.allow_key_cmd() => {
-                    if let Some(view) = self.view_selector.get_current_view() {
-                        let _ =
-                            tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
-                    }
-                }
-                _ => self.view_selector.handle_key_event(key_event),
-            },
-            ActivePane::TaskList => match key_event.code {
-                // enter view selector
-                KeyCode::Left | KeyCode::Char('h') => {
-                    self.active_pane = ActivePane::ViewSelector;
-                    self.task_list.deactivate();
-                    self.view_selector.activate();
-                }
-                // edit selected task
-                KeyCode::Enter => {
-                    if !self.task_list.is_empty()
-                        && let Some(task) = self.task_list.get_current_task()
-                    {
-                        let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
-                            NormalModeAction::EditTask(task),
-                        )));
-                    }
-                }
-                // create new task
-                KeyCode::Char('n') => {
-                    let _ = tx.send(AppAction::UIAction(UIAction::NormalMode(
-                        NormalModeAction::CreateNewTask,
-                    )));
-                }
-                KeyCode::Char('f') if self.allow_key_cmd() => {
-                    if let Some(view) = self.view_selector.get_current_view() {
-                        let _ =
-                            tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
-                    }
-                }
-                _ => self.task_list.handle_key_event(key_event),
-            },
-            ActivePane::TaskEditor => match key_event.code {
-                // KeyCode::Left | KeyCode::Char('h') => {
-                //     if self.task_editor.is_in_insert_mode() {
-                //         self.task_editor.handle_key_event(key_event);
-                //     } else {
-                //         self.active_pane = ActivePane::ViewSelector;
-                //         self.task_editor.deactivate();
-                //         self.view_selector.activate();
-                //     }
-                // }
-                KeyCode::Esc => {
-                    if self.task_editor.is_in_insert_mode() {
-                        self.task_editor.handle_key_event(key_event);
-                    } else {
-                        if self.task_editor.unsaved_changes {
-                            if let Some(selected_task) = self.task_list.get_current_task() {
-                                self.task_editor.load_task(&selected_task);
-                            } else {
-                                self.task_editor.clear_all_fields();
-                            }
-                        }
-                        self.active_pane = ActivePane::TaskList;
-                        self.task_editor.deactivate();
-                        self.task_list.activate();
-                    }
-                }
-                _ => self.task_editor.handle_key_event(key_event),
-            },
+            }
+            _ => self.task_editor.handle_key_event(key_event),
         }
     }
 
