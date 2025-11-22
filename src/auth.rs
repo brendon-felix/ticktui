@@ -1,4 +1,5 @@
-use axum::{extract::Query, http::StatusCode, response::Html, routing::get, Router};
+use anyhow::{Context, Result};
+use axum::{Router, extract::Query, http::StatusCode, response::Html, routing::get};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,15 +15,11 @@ pub struct AuthCallback {
     pub error: Option<String>,
 }
 
-pub fn get_client_id() -> Option<(String, String)> {
-    let client_id = std::env::var("TICKTICK_CLIENT_ID").ok()?;
-    let client_secret = std::env::var("TICKTICK_CLIENT_SECRET").ok()?;
-
-    if client_id.is_empty() || client_secret.is_empty() {
-        return None;
-    }
-
-    Some((client_id, client_secret))
+pub fn get_client_id() -> Result<(String, String)> {
+    let client_id = std::env::var("TICKTICK_CLIENT_ID").context("TICKTICK_CLIENT_ID not set")?;
+    let client_secret =
+        std::env::var("TICKTICK_CLIENT_SECRET").context("TICKTICK_CLIENT_SECRET not set")?;
+    Ok((client_id, client_secret))
 }
 
 fn get_token_cache_path() -> PathBuf {
@@ -33,19 +30,20 @@ fn get_token_cache_path() -> PathBuf {
     path
 }
 
-pub fn load_cached_token() -> Option<AccessToken> {
+pub fn load_cached_token() -> Result<AccessToken> {
     let path = get_token_cache_path();
     if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(token) = serde_json::from_str::<AccessToken>(&content) {
-                return Some(token);
-            }
-        }
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read token cache from {:?}", path))?;
+        let token: AccessToken =
+            serde_json::from_str(&content).with_context(|| "Failed to parse token cache JSON")?;
+        Ok(token)
+    } else {
+        Err(anyhow::anyhow!("Token cache does not exist"))
     }
-    None
 }
 
-pub fn save_token_cache(token: &AccessToken) -> Result<(), Box<dyn std::error::Error>> {
+pub fn save_token_cache(token: &AccessToken) -> Result<()> {
     let path = get_token_cache_path();
     let json = serde_json::to_string(token)?;
     std::fs::write(path, json)?;
@@ -60,15 +58,11 @@ pub fn clear_token_cache() {
 pub async fn perform_authorization(
     client_id: String,
     client_secret: String,
-) -> Option<AccessToken> {
+) -> Result<AccessToken> {
     let redirect_uri = REDIRECT_URI.to_string();
     let auth_result = Authorization::begin_auth(client_id.clone(), redirect_uri.clone());
-    let awaiting_auth = match auth_result {
-        Ok(auth) => auth,
-        Err(_e) => {
-            return None;
-        }
-    };
+    let awaiting_auth =
+        auth_result.map_err(|e| anyhow::anyhow!("Failed to begin authorization: {:?}", e))?;
     let auth_code = Arc::new(Mutex::new(None::<String>));
     let auth_state = Arc::new(Mutex::new(None::<String>));
 
@@ -106,12 +100,7 @@ pub async fn perform_authorization(
         }
     };
     let app = Router::new().route("/callback", get(callback_handler));
-    let listener = match tokio::net::TcpListener::bind("127.0.0.1:8080").await {
-        Ok(l) => l,
-        Err(_e) => {
-            return None;
-        }
-    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080").await?;
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
@@ -124,29 +113,25 @@ pub async fn perform_authorization(
             break code;
         }
         if start.elapsed() > timeout {
-            return None;
+            return Err(anyhow::anyhow!("Authorization timed out."));
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     };
     let received_state = auth_state.lock().await.take().unwrap_or_default();
-    match awaiting_auth
+    let token = awaiting_auth
         .finish_auth(client_secret, received_code, received_state)
         .await
-    {
-        Ok(token) => Some(token),
-        Err(_e) => None,
-    }
+        .map_err(|e| anyhow::anyhow!("Failed to finish authorization: {:?}", e))?;
+    save_token_cache(&token).map_err(|e| anyhow::anyhow!("Failed to save token cache: {:?}", e))?;
+    Ok(token)
 }
 
-pub async fn get_access_token(client_id: String, client_secret: String) -> Option<AccessToken> {
-    if let Some(token) = load_cached_token() {
-        return Some(token);
-    }
-    match perform_authorization(client_id, client_secret).await {
-        Some(token) => {
-            let _ = save_token_cache(&token);
-            Some(token)
+pub async fn get_access_token(client_id: String, client_secret: String) -> Result<AccessToken> {
+    match load_cached_token() {
+        Ok(token) => Ok(token),
+        Err(_) => {
+            println!("No valid cached token found, starting authorization flow...");
+            perform_authorization(client_id, client_secret).await
         }
-        None => None,
     }
 }

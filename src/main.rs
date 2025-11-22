@@ -10,12 +10,11 @@ use std::sync::Arc;
 use ticks::{AccessToken, TickTick};
 
 #[tokio::main]
-async fn main() {
-    if let Some((client_id, client_secret)) = auth::get_client_id() {
-        if let Some(access_token) = auth::get_access_token(client_id, client_secret).await {
-            let _ = run(access_token).await;
-        }
-    }
+async fn main() -> Result<()> {
+    let (client_id, client_secret) = auth::get_client_id()?;
+    let access_token = auth::get_access_token(client_id, client_secret).await?;
+    run(access_token).await?;
+    Ok(())
 }
 
 async fn run(access_token: ticks::AccessToken) -> Result<()> {
