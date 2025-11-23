@@ -1,6 +1,6 @@
 mod helpers;
 
-use chrono::Local;
+use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{Frame, layout::Rect};
 use std::{sync::Arc, time::Instant};
@@ -96,7 +96,7 @@ impl FocusModeUI {
     }
 
     pub fn set_view(&mut self, view: View) {
-        self.shown_tasks = view.get_filtered_task_ids(Local::now(), self.all_tasks.as_ref());
+        self.shown_tasks = view.get_filtered_task_ids(Utc::now(), self.all_tasks.as_ref());
         if self.shown_tasks.is_empty() {
             self.list.focus(None);
         } else {
@@ -105,12 +105,16 @@ impl FocusModeUI {
         self.current_view = Some(view);
     }
 
+    pub fn get_view(&self) -> Option<&View> {
+        self.current_view.as_ref()
+    }
+
     pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {
         self.set_all_tasks(tasks);
         // Apply the current view filter
         if let Some(current_view) = &self.current_view {
             self.shown_tasks =
-                current_view.get_filtered_task_ids(Local::now(), self.all_tasks.as_ref());
+                current_view.get_filtered_task_ids(Utc::now(), self.all_tasks.as_ref());
         } else {
             self.shown_tasks = self
                 .all_tasks

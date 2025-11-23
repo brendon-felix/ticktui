@@ -74,21 +74,21 @@ impl NormalModeUI {
                 self.task_editor.activate();
             }
             NormalModeAction::CreateNewTask => {
-                self.task_editor.clear_all_fields();
-                if let Some(view) = self.view_selector.get_current_view() {
-                    match view {
-                        View::Today => self.task_editor.set_due_date_content("Today"),
-                        View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
-                        View::Week => self.task_editor.set_due_date_content("Today"),
-                        // View::Inbox => self.task_editor.set_project_content(""),
-                        _ => {}
-                    }
-                }
-                self.active_pane = ActivePane::TaskEditor;
-                self.view_selector.deactivate();
-                self.task_list.deactivate();
-                self.task_editor.activate();
-                self.task_editor.set_mode(EditorMode::Insert);
+                // self.task_editor.clear_all_fields();
+                // if let Some(view) = self.view_selector.get_current_view() {
+                //     match view {
+                //         View::Today => self.task_editor.set_due_date_content("Today"),
+                //         View::Tomorrow => self.task_editor.set_due_date_content("Tomorrow"),
+                //         View::Week => self.task_editor.set_due_date_content("Today"),
+                //         // View::Inbox => self.task_editor.set_project_content(""),
+                //         _ => {}
+                //     }
+                // }
+                // self.active_pane = ActivePane::TaskEditor;
+                // self.view_selector.deactivate();
+                // self.task_list.deactivate();
+                // self.task_editor.activate();
+                // self.task_editor.set_mode(EditorMode::Insert);
             }
             NormalModeAction::ExitTaskEditor => {
                 // if let Some(selected_task) = self.task_list.get_current_task() {
@@ -114,6 +114,10 @@ impl NormalModeUI {
         if let Some(current_view) = self.view_selector.get_current_view() {
             self.task_list.filter_by_view(current_view);
         }
+    }
+
+    pub fn get_current_view(&self) -> Option<View> {
+        self.view_selector.get_current_view().cloned()
     }
 
     pub fn update_tasks(&mut self, tasks: Arc<Vec<Arc<Task>>>) {

@@ -1,4 +1,4 @@
-use crossterm::event::{KeyEvent, MouseEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
 
 mod animate;
@@ -27,7 +27,7 @@ use crate::{
         batchmode::BatchModeUI,
         focusmode::FocusModeAction,
         normalmode::NormalModeAction,
-        popup::{Popup, confirm::ConfirmationPopup, debug::DebugPopup},
+        popup::{Popup, confirm::ConfirmationPopup, debug::DebugPopup, newtask::NewTaskPopup},
         viewselector::View,
     },
 };
@@ -40,6 +40,7 @@ pub enum UIAction {
     NormalMode(NormalModeAction),
     FocusMode(FocusModeAction),
     Confirm(Box<AppAction>),
+    NewTask,
     ClosePopup,
     DebugMsg(String),
 }
@@ -95,6 +96,9 @@ impl AppUI {
             UIAction::Confirm(pending_action) => {
                 self.confirm(*pending_action);
             }
+            UIAction::NewTask => {
+                self.new_task();
+            }
             UIAction::ClosePopup => {
                 self.close_popup();
             }
@@ -137,10 +141,16 @@ impl AppUI {
         self.popup = Some(Box::new(popup));
     }
 
-    // pub fn start_new_task(&mut self) {
-    //     let popup = NewTaskPopup::new(self.tx.clone());
-    //     self.popup = Some(Box::new(popup));
-    // }
+    pub fn new_task(&mut self) {
+        let view = match self.mode {
+            AppUIMode::Normal => self.normal_ui.get_current_view(),
+            AppUIMode::Focus => self.focus_ui.get_view().cloned(),
+            AppUIMode::Batch => return,
+        };
+        let view = view.unwrap_or(View::Today);
+        let popup = NewTaskPopup::new(view, self.tx.clone());
+        self.popup = Some(Box::new(popup));
+    }
 
     pub fn close_popup(&mut self) {
         if self.debug_popup.is_some() {
@@ -180,18 +190,25 @@ impl AppUI {
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent, tx: &UnboundedSender<AppAction>) {
         // 'q' and 'ctrl+c' are handled by app.rs
-        if let Some(debug_popup) = &mut self.debug_popup {
-            debug_popup.handle_key_event(key_event);
-            return;
-        }
-        if let Some(popup) = &mut self.popup {
-            popup.handle_key_event(key_event);
-            return;
-        }
-        match self.mode {
-            AppUIMode::Normal => self.normal_ui.handle_key_event(key_event, tx),
-            AppUIMode::Focus => self.focus_ui.handle_key_event(key_event, tx),
-            AppUIMode::Batch => self.batch_ui.handle_key_event(key_event, tx),
+        match key_event.code {
+            KeyCode::Char('n') if self.allow_key_cmd() => {
+                let _ = tx.send(AppAction::UIAction(UIAction::NewTask));
+            }
+            _ => {
+                if let Some(debug_popup) = &mut self.debug_popup {
+                    debug_popup.handle_key_event(key_event);
+                    return;
+                }
+                if let Some(popup) = &mut self.popup {
+                    popup.handle_key_event(key_event);
+                    return;
+                }
+                match self.mode {
+                    AppUIMode::Normal => self.normal_ui.handle_key_event(key_event, tx),
+                    AppUIMode::Focus => self.focus_ui.handle_key_event(key_event, tx),
+                    AppUIMode::Batch => self.batch_ui.handle_key_event(key_event, tx),
+                }
+            }
         }
     }
 

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -42,7 +42,7 @@ impl View {
         s.into()
     }
 
-    pub fn contains_task(&self, now: DateTime<Local>, task: &Task) -> bool {
+    pub fn contains_task(&self, now: DateTime<Utc>, task: &Task) -> bool {
         match self {
             View::Today => is_due_today(now, task) | is_overdue(now, task),
             View::Tomorrow => is_due_tomorrow(now, task),
@@ -58,7 +58,7 @@ impl View {
 
     pub fn get_filtered_task_ids(
         &self,
-        now: DateTime<Local>,
+        now: DateTime<Utc>,
         all_tasks: &Vec<Arc<Task>>,
     ) -> Vec<TaskID> {
         // all_tasks

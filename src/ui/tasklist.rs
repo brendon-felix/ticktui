@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
@@ -140,7 +140,7 @@ impl TaskList {
     }
 
     pub fn filter_by_view(&mut self, view: &View) {
-        let now = Local::now();
+        let now = Utc::now();
         let old_selection = self.get_current_task();
 
         self.shown_tasks = view.get_filtered_task_ids(now, self.all_tasks.as_ref());
@@ -178,7 +178,7 @@ impl TaskList {
             })
             .collect();
         self.list_left.set_items(left_items);
-        let now = chrono::Local::now();
+        let now = Utc::now();
         let right_items: Vec<MultiSelectListItem> = self
             .shown_tasks
             .iter()
@@ -398,7 +398,7 @@ fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
     MultiSelectListItem::new(vec![line1, line2, line3])
 }
 
-fn create_list_right_item(now: DateTime<Local>, task: &Arc<Task>) -> MultiSelectListItem<'static> {
+fn create_list_right_item(now: DateTime<Utc>, task: &Arc<Task>) -> MultiSelectListItem<'static> {
     let line1 = Line::from("");
     let line2 = if task.due_date.timestamp() > 0 {
         let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);

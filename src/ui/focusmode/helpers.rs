@@ -1,3 +1,4 @@
+use chrono::Utc;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -27,7 +28,7 @@ const EXPLODE_MS: u64 = TICK_PERIOD_MS * N_TICKS;
 const MOTION_DURATION_MS: u64 = TICK_PERIOD_MS * 2;
 
 pub fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
-    let now = chrono::Local::now();
+    let now = Utc::now();
 
     let line1 = Line::from("");
     let line2 = Line::from(task.title.clone());

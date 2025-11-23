@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Local, NaiveTime, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, Utc};
 use ticks::{
     TickTick,
     projects::ProjectID,
@@ -120,87 +120,48 @@ pub async fn fetch_all_tasks(client: &TickTick) -> Result<Vec<Task>> {
     Ok(all_tasks)
 }
 
-pub fn is_overdue(now: DateTime<Local>, task: &Task) -> bool {
-    let now = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
-    task.due_date.timestamp() > 0 && task.due_date < now
+pub fn get_local_date(dt: DateTime<Utc>) -> NaiveDate {
+    dt.with_timezone(&Local).date_naive()
 }
 
-// pub fn was_due_before_today(now: DateTime<Local>, task: &Task) -> bool {
-//     let today_start = now
-//         .date_naive()
-//         .and_hms_opt(0, 0, 0)
-//         .unwrap()
-//         .and_local_timezone(Local)
-//         .unwrap()
-//         .with_timezone(&chrono::Utc);
-
-//     task.due_date.timestamp() > 0 && task.due_date < today_start
-// }
-
-pub fn is_due_today(now: DateTime<Local>, task: &Task) -> bool {
-    let today_start = now
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
+pub fn with_local_hms(date: NaiveDate, hour: u32, min: u32, sec: u32) -> DateTime<Utc> {
+    let local_dt = date
+        .and_hms_opt(hour, min, sec)
         .unwrap()
         .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+        .unwrap();
+    local_dt.with_timezone(&Utc)
+}
 
-    let today_end = now
-        .date_naive()
-        .and_hms_opt(23, 59, 59)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+pub fn is_overdue(now: DateTime<Utc>, task: &Task) -> bool {
+    let today_start = with_local_hms(get_local_date(now), 0, 0, 0);
+    if task.due_date.timestamp() > 0 && task.due_date < now {
+        task.due_date != today_start
+    } else {
+        false
+    }
+}
 
+pub fn is_due_today(now: DateTime<Utc>, task: &Task) -> bool {
+    let today_start = with_local_hms(get_local_date(now), 0, 0, 0);
+    let today_end = with_local_hms(get_local_date(now), 23, 59, 59);
     task.due_date >= today_start && task.due_date <= today_end
 }
 
-pub fn is_due_tomorrow(now: DateTime<Local>, task: &Task) -> bool {
-    let tomorrow_start = (now + chrono::Duration::days(1))
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
-
-    let tomorrow_end = (now + chrono::Duration::days(1))
-        .date_naive()
-        .and_hms_opt(23, 59, 59)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+pub fn is_due_tomorrow(now: DateTime<Utc>, task: &Task) -> bool {
+    let tomorrow = now + Duration::days(1);
+    let tomorrow_start = with_local_hms(get_local_date(tomorrow), 0, 0, 0);
+    let tomorrow_end = with_local_hms(get_local_date(tomorrow), 23, 59, 59);
 
     task.due_date.timestamp() > 0
         && task.due_date >= tomorrow_start
         && task.due_date <= tomorrow_end
 }
 
-pub fn is_due_this_week(now: DateTime<Local>, task: &Task) -> bool {
-    let today_end = now
-        .date_naive()
-        .and_hms_opt(23, 59, 59)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
-
-    let week_end = (now + chrono::Duration::days(7))
-        .date_naive()
-        .and_hms_opt(23, 59, 59)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-        .with_timezone(&chrono::Utc);
+pub fn is_due_this_week(now: DateTime<Utc>, task: &Task) -> bool {
+    let today_end = with_local_hms(get_local_date(now), 23, 59, 59);
+    let next_week = now + Duration::days(7);
+    let week_end = with_local_hms(get_local_date(next_week), 23, 59, 59);
 
     task.due_date.timestamp() > 0 && task.due_date >= today_end && task.due_date <= week_end
 }
