@@ -118,6 +118,16 @@ impl CompositeEditor {
         }
     }
 
+    pub fn clear_all(&mut self) {
+        for editor in self.editors.iter_mut() {
+            editor.set_content("");
+        }
+    }
+
+    pub fn all_valid(&self) -> bool {
+        self.editors.iter().all(|editor| editor.is_valid())
+    }
+
     pub fn get_active_editor(&mut self) -> Option<(&mut Editor, usize)> {
         self.active_index
             .and_then(|index| self.editors.get_mut(index).map(|editor| (editor, index)))

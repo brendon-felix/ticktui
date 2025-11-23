@@ -3,7 +3,7 @@ use crossterm::{
     cursor,
     event::{
         DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyEvent, KeyEventKind,
-        MouseEvent,
+        KeyboardEnhancementFlags, MouseEvent, PushKeyboardEnhancementFlags,
     },
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -149,6 +149,10 @@ impl AppTerminal {
         crossterm::terminal::enable_raw_mode()?;
         crossterm::execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
         crossterm::execute!(stdout(), EnableMouseCapture)?;
+        crossterm::execute!(
+            stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
         self.start();
         Ok(())
     }

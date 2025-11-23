@@ -82,6 +82,8 @@ pub struct Editor {
     textarea: TextArea<'static>,
     single_line: bool,
     validator: Option<Box<dyn Fn(&str) -> Option<bool>>>,
+    style_overridden: bool,
+    cursor_style_overridden: bool,
     border_style_overridden: bool,
 }
 
@@ -103,6 +105,8 @@ impl Editor {
             textarea,
             single_line: false,
             validator: None,
+            style_overridden: false,
+            cursor_style_overridden: false,
             border_style_overridden: false,
         };
         editor.update_style();
@@ -127,13 +131,34 @@ impl Editor {
         self
     }
 
-    // pub fn with_placeholder(mut self, placeholder: &str) -> Self {
-    //     self.textarea.set_placeholder_text(placeholder);
-    //     self
-    // }
+    pub fn with_placeholder(mut self, placeholder: &str) -> Self {
+        self.textarea.set_placeholder_text(placeholder);
+        self
+    }
 
     pub fn with_block(mut self, block: Block<'static>) -> Self {
         self.textarea.set_block(block);
+        self
+    }
+
+    pub fn with_overridden_style(mut self, style: Style) -> Self {
+        self.textarea.set_style(style);
+        self.style_overridden = true;
+        self
+    }
+
+    pub fn with_overridden_cursor_style(mut self, style: Style) -> Self {
+        self.textarea.set_cursor_style(style);
+        self.cursor_style_overridden = true;
+        self
+    }
+
+    pub fn with_overridden_border_style(mut self, style: Style) -> Self {
+        if let Some(mut block) = self.textarea.block().cloned() {
+            block = block.border_style(style);
+            self.textarea.set_block(block);
+            self.border_style_overridden = true;
+        }
         self
     }
 
@@ -147,6 +172,24 @@ impl Editor {
 
     pub fn set_style(&mut self, style: Style) {
         self.textarea.set_style(style);
+    }
+
+    pub fn override_style(&mut self, style: Style) {
+        self.textarea.set_style(style);
+        self.style_overridden = true;
+    }
+
+    pub fn clear_style_override(&mut self) {
+        self.style_overridden = false;
+    }
+
+    pub fn override_cursor_style(&mut self, style: Style) {
+        self.textarea.set_cursor_style(style);
+        self.cursor_style_overridden = true;
+    }
+
+    pub fn clear_cursor_style_override(&mut self) {
+        self.cursor_style_overridden = false;
     }
 
     pub fn override_border_style(&mut self, style: Style) {
@@ -183,7 +226,12 @@ impl Editor {
     }
 
     pub fn update_style(&mut self) {
-        self.set_cursor_style(cursor_style(self.get_mode(), self.state.is_active));
+        if self.style_overridden {
+            return;
+        }
+        if !self.cursor_style_overridden {
+            self.set_cursor_style(cursor_style(self.get_mode(), self.state.is_active));
+        }
         let style = if self.state.is_active {
             self.textarea.style().remove_modifier(Modifier::DIM)
         } else {
@@ -192,21 +240,23 @@ impl Editor {
         self.textarea.set_style(style);
 
         if let Some(block) = self.textarea.block().cloned() {
-            let mut style = if let Some(valid_state) = self.state.valid_state {
-                if valid_state {
-                    // Style::default().fg(ratatui::style::Color::LightGreen)
-                    Style::default()
+            if !self.border_style_overridden {
+                let mut style = if let Some(valid_state) = self.state.valid_state {
+                    if valid_state {
+                        // Style::default().fg(ratatui::style::Color::LightGreen)
+                        Style::default()
+                    } else {
+                        Style::default().fg(ratatui::style::Color::LightRed)
+                    }
                 } else {
-                    Style::default().fg(ratatui::style::Color::LightRed)
-                }
-            } else {
-                Style::default()
-            };
-            if !self.state.is_active {
-                style = style.add_modifier(Modifier::DIM);
-            };
-            let block = block.border_style(style);
-            self.textarea.set_block(block);
+                    Style::default()
+                };
+                if !self.state.is_active {
+                    style = style.add_modifier(Modifier::DIM);
+                };
+                let block = block.border_style(style);
+                self.textarea.set_block(block);
+            }
         }
     }
 
@@ -218,8 +268,16 @@ impl Editor {
         self.single_line
     }
 
+    pub fn is_valid(&self) -> bool {
+        self.state.valid_state.unwrap_or(true)
+    }
+
     pub fn get_content(&self) -> String {
         self.textarea.lines().join("\n")
+    }
+
+    pub fn set_mode(&mut self, mode: EditorMode) {
+        self.execute_action(EditorAction::SetMode(mode));
     }
 
     pub fn get_mode(&self) -> EditorMode {

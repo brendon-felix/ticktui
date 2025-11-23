@@ -2,6 +2,7 @@ use crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
 
 mod animate;
+mod batchmode;
 mod composite;
 mod editor;
 mod focuslist;
@@ -23,6 +24,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     app::AppAction,
     ui::{
+        batchmode::BatchModeUI,
         focusmode::FocusModeAction,
         normalmode::NormalModeAction,
         popup::{Popup, confirm::ConfirmationPopup, debug::DebugPopup},
@@ -33,7 +35,8 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum UIAction {
     EnterFocusMode(View),
-    ExitFocusMode,
+    EnterBatchMode(View),
+    ExitToNormalMode,
     NormalMode(NormalModeAction),
     FocusMode(FocusModeAction),
     Confirm(Box<AppAction>),
@@ -43,14 +46,16 @@ pub enum UIAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AppUIMode {
-    Focus,
     Normal,
+    Focus,
+    Batch,
 }
 
 pub struct AppUI {
     mode: AppUIMode,
-    focus_ui: FocusModeUI,
     normal_ui: NormalModeUI,
+    focus_ui: FocusModeUI,
+    batch_ui: BatchModeUI,
     popup: Option<Box<dyn Popup>>,
     debug_popup: Option<DebugPopup>,
     tx: UnboundedSender<AppAction>,
@@ -60,8 +65,9 @@ impl AppUI {
     pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         Self {
             mode: AppUIMode::Normal,
-            focus_ui: FocusModeUI::new(),
             normal_ui: NormalModeUI::new(tx.clone()),
+            focus_ui: FocusModeUI::new(),
+            batch_ui: BatchModeUI::new(),
             popup: None,
             debug_popup: None,
             tx,
@@ -74,8 +80,11 @@ impl AppUI {
                 self.mode = AppUIMode::Focus;
                 self.focus_ui.set_view(view);
             }
-            UIAction::ExitFocusMode => {
+            UIAction::ExitToNormalMode => {
                 self.mode = AppUIMode::Normal;
+            }
+            UIAction::EnterBatchMode(view) => {
+                self.mode = AppUIMode::Batch;
             }
             UIAction::NormalMode(normal_action) => {
                 self.normal_ui.execute_action(normal_action);
@@ -162,8 +171,9 @@ impl AppUI {
         match &self.popup {
             Some(p) => p.allow_key_cmd(),
             None => match self.mode {
-                AppUIMode::Focus => self.focus_ui.allow_key_cmd(),
                 AppUIMode::Normal => self.normal_ui.allow_key_cmd(),
+                AppUIMode::Focus => self.focus_ui.allow_key_cmd(),
+                AppUIMode::Batch => self.batch_ui.allow_key_cmd(),
             },
         }
     }
@@ -179,8 +189,9 @@ impl AppUI {
             return;
         }
         match self.mode {
-            AppUIMode::Focus => self.focus_ui.handle_key_event(key_event, tx),
             AppUIMode::Normal => self.normal_ui.handle_key_event(key_event, tx),
+            AppUIMode::Focus => self.focus_ui.handle_key_event(key_event, tx),
+            AppUIMode::Batch => self.batch_ui.handle_key_event(key_event, tx),
         }
     }
 
@@ -194,15 +205,17 @@ impl AppUI {
             return;
         }
         match self.mode {
-            AppUIMode::Focus => self.focus_ui.handle_mouse_event(mouse_event),
             AppUIMode::Normal => self.normal_ui.handle_mouse_event(mouse_event),
+            AppUIMode::Focus => self.focus_ui.handle_mouse_event(mouse_event),
+            AppUIMode::Batch => self.batch_ui.handle_mouse_event(mouse_event),
         }
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
         match self.mode {
-            AppUIMode::Focus => self.focus_ui.draw(f, area, last_frame),
             AppUIMode::Normal => self.normal_ui.draw(f, area, last_frame),
+            AppUIMode::Focus => self.focus_ui.draw(f, area, last_frame),
+            AppUIMode::Batch => self.batch_ui.draw(f, area, last_frame),
         }
         if let Some(popup) = &mut self.popup {
             popup.draw(f, area, last_frame);

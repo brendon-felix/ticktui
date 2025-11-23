@@ -1,5 +1,10 @@
 use chrono::{Datelike, Timelike};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    widgets::{Block, Clear, Widget},
+};
 
 pub fn centered_area(area: Rect, height: u16, width: u16) -> Rect {
     Layout::new(
@@ -21,6 +26,13 @@ pub fn centered_area(area: Rect, height: u16, width: u16) -> Rect {
         )
         .split(area)[1],
     )[1]
+}
+
+pub fn paint_background(f: &mut Frame) {
+    Clear.render(f.area(), f.buffer_mut());
+    Block::default()
+        .style(Style::default().bg(Color::Rgb(25, 25, 25)))
+        .render(f.area(), f.buffer_mut());
 }
 
 /// Parse date in US format (MM/DD or MM/DD/YYYY) or ISO format (YYYY-MM-DD)

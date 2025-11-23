@@ -193,6 +193,9 @@ impl TaskList {
             })
             .collect();
         self.list_right.set_items(right_items);
+    }
+
+    pub fn start_animation(&mut self) {
         if let Some(area) = self.last_area {
             let area = if let Some(block) = self.current_block.clone() {
                 block.inner(area)
@@ -215,11 +218,7 @@ impl TaskList {
                 .task_id(task.get_id().clone())
                 .project_id(task.project_id.clone());
             let task_action = AppAction::TaskAction(TaskAction::Delete, data);
-            let confirm_action =
-                AppAction::UIAction(UIAction::Confirm(Box::new(AppAction::MultiAction(vec![
-                    task_action,
-                    AppAction::RefreshData,
-                ]))));
+            let confirm_action = AppAction::UIAction(UIAction::Confirm(Box::new(task_action)));
             let _ = self.tx.send(confirm_action);
             if self.shown_tasks.is_empty() {
                 self.list_state.select(None);
@@ -257,12 +256,9 @@ impl TaskList {
                         }
                     })
                 });
-                let confirmation_action =
-                    AppAction::UIAction(UIAction::Confirm(Box::new(AppAction::MultiAction(
-                        task_actions
-                            .chain(std::iter::once(AppAction::RefreshData))
-                            .collect(),
-                    ))));
+                let confirmation_action = AppAction::UIAction(UIAction::Confirm(Box::new(
+                    AppAction::MultiAction(task_actions.collect()),
+                )));
                 let _ = self.tx.send(confirmation_action);
                 // self.list_state.select_next();
                 self.list_state.select(Some(s));

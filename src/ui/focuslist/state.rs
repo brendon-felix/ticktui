@@ -98,7 +98,15 @@ impl FocusListState {
         }
     }
 
-    pub fn get_area_opt(&self, position: FocusListPosition) -> Option<&AnimatedArea> {
+    pub fn is_completed(&self, position: FocusListPosition) -> bool {
+        if let Some(animated_area) = &self.get_anim_area(position) {
+            animated_area.is_completed()
+        } else {
+            true
+        }
+    }
+
+    pub fn get_anim_area(&self, position: FocusListPosition) -> Option<&AnimatedArea> {
         match position {
             FocusListPosition::PrevPrev => self.prev_prev_area.as_ref(),
             FocusListPosition::Prev => self.prev_area.as_ref(),
@@ -109,7 +117,7 @@ impl FocusListState {
     }
 
     pub fn get_area(&self, position: FocusListPosition) -> Option<Rect> {
-        let animated_area_opt = self.get_area_opt(position);
+        let animated_area_opt = self.get_anim_area(position);
         if let Some(animated_area) = animated_area_opt {
             Some(animated_area.get_area())
         } else {
@@ -118,7 +126,7 @@ impl FocusListState {
     }
 
     pub fn get_area_ref(&self, position: FocusListPosition) -> Option<RefRect> {
-        let animated_area_opt = self.get_area_opt(position);
+        let animated_area_opt = self.get_anim_area(position);
         if let Some(animated_area) = animated_area_opt {
             Some(animated_area.get_area_ref().clone())
         } else {

@@ -2,12 +2,7 @@ mod helpers;
 
 use chrono::Local;
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::{Block, Clear, Widget},
-};
+use ratatui::{Frame, layout::Rect};
 use std::{sync::Arc, time::Instant};
 use tachyonfx::EffectManager;
 use ticks::tasks::{Task, TaskID};
@@ -18,11 +13,13 @@ use crate::{
     tasks::{TaskAction, TaskData},
     ui::{
         UIAction,
+        animate::start_sweep,
         focuslist::{FocusList, FocusListItem, state::FocusListState},
         focusmode::helpers::{
             animate_completion, animate_scroll_down, animate_scroll_up, animate_shift_down,
             animate_shift_up, create_list_item, render_no_tasks,
         },
+        utils::paint_background,
         viewselector::View,
     },
 };
@@ -56,13 +53,15 @@ pub struct FocusModeUI {
 
 impl FocusModeUI {
     pub fn new() -> Self {
+        let mut effects = EffectManager::default();
+        start_sweep(500, &mut effects);
         Self {
             all_tasks: Arc::new(Vec::new()),
             shown_tasks: Vec::new(),
             current_view: None,
             list: FocusList::new(Vec::<FocusListItem>::new()),
             list_state: FocusListState::default(),
-            effects: EffectManager::default(),
+            effects,
             // tx,
         }
     }
@@ -194,7 +193,7 @@ impl FocusModeUI {
                 }
             }
             KeyCode::Esc => {
-                let _ = tx.send(AppAction::UIAction(UIAction::ExitFocusMode));
+                let _ = tx.send(AppAction::UIAction(UIAction::ExitToNormalMode));
             }
             _ => {}
         }
@@ -205,10 +204,7 @@ impl FocusModeUI {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
-        Clear.render(f.area(), f.buffer_mut());
-        Block::default()
-            .style(Style::default().bg(Color::Rgb(25, 25, 25)))
-            .render(f.area(), f.buffer_mut());
+        paint_background(f);
 
         let items: Vec<FocusListItem> = self
             .shown_tasks

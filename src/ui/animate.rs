@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
-use ratatui::layout::Rect;
-use tachyonfx::RefRect;
+use ratatui::{layout::Rect, style::Color};
+use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, RefRect, fx};
 
 #[derive(Debug, Clone)]
 pub enum AnimationDirection {
@@ -233,4 +233,11 @@ impl AnimatedArea {
     pub fn current_animation(&self) -> Option<&Animation> {
         self.animation.as_ref()
     }
+}
+
+pub fn start_sweep(n_ms: u32, effects: &mut EffectManager<()>) {
+    let c = Color::Rgb(25, 25, 25);
+    let timer = EffectTimer::from_ms(n_ms, Interpolation::Linear);
+    let fx = fx::sweep_in(Motion::UpToDown, 10, 0, c, timer);
+    effects.add_effect(fx);
 }

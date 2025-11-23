@@ -141,7 +141,9 @@ impl App {
         tx: &UnboundedSender<AppAction>,
     ) -> Result<()> {
         match key_event.code {
-            KeyCode::Char('q') if self.ui.allow_key_cmd() => tx.send(AppAction::Quit)?,
+            KeyCode::Char('q') if self.ui.allow_key_cmd() => tx.send(AppAction::UIAction(
+                UIAction::Confirm(Box::new(AppAction::Quit)),
+            ))?,
             KeyCode::Char('r') if self.ui.allow_key_cmd() => tx.send(AppAction::RefreshData)?,
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 tx.send(AppAction::Quit)?
@@ -182,7 +184,7 @@ impl App {
             AppAction::Quit => self.quitting = true,
             AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
-            AppAction::TaskAction(action, data) => self.execute_task_action(action, data),
+            AppAction::TaskAction(action, data) => self.execute_task_action(action, data, tx),
             AppAction::UIAction(action) => self.ui.execute_action(action, tx),
             AppAction::MultiAction(actions) => {
                 for act in actions {
@@ -199,7 +201,12 @@ impl App {
         Ok(())
     }
 
-    fn execute_task_action(&mut self, action: TaskAction, data: TaskData) {
+    fn execute_task_action(
+        &mut self,
+        action: TaskAction,
+        data: TaskData,
+        tx: &UnboundedSender<AppAction>,
+    ) {
         let client = Arc::clone(&self.client);
         // let _ = self.tx.send(AppAction::UIAction(UIAction::DebugMsg(format!(
         //     "Executing task action: {:?} with data: {:?}",
@@ -213,6 +220,7 @@ impl App {
                 TaskAction::Delete => tasks::delete_task(&client, data).await,
             }
         });
+        self.refresh_tasks(tx.clone())
     }
 
     fn render(&mut self, last_frame: Instant) -> Result<()> {

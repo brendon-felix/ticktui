@@ -178,10 +178,7 @@ impl TaskEditor {
     }
 
     pub fn clear_all_fields(&mut self) {
-        self.set_title_content("");
-        self.set_due_date_content("");
-        self.set_priority_content("");
-        self.set_description_content("");
+        self.editor.clear_all();
         // Reset priority color to default
         self.editor.editors[2].set_style(Style::default());
         self.editor.editors[2].override_border_style(Style::default());
@@ -279,24 +276,11 @@ impl TaskEditor {
     }
 
     pub fn handle_key_event(&mut self, key_event: KeyEvent) {
-        match key_event {
-            KeyEvent {
-                code: KeyCode::Enter,
-                modifiers: KeyModifiers::CONTROL,
-                kind: _,
-                state: _,
-            } => {
-                let _ = self
-                    .tx
-                    .send(AppAction::UIAction(UIAction::DebugMsg("Test".into())));
-                // if self.unsaved_changes {
-                let data = self.parse_inputs();
-                let action = AppAction::MultiAction(vec![
-                    AppAction::TaskAction(TaskAction::Create, data),
-                    AppAction::UIAction(UIAction::NormalMode(NormalModeAction::ExitTaskEditor)),
-                    AppAction::RefreshData,
-                ]);
-                let _ = self.tx.send(action);
+        match key_event.code {
+            KeyCode::Enter
+                if key_event.modifiers == (KeyModifiers::CONTROL | KeyModifiers::SHIFT) =>
+            {
+                self.submit();
                 return;
             }
             _ => {}
@@ -339,7 +323,7 @@ impl TaskEditor {
             };
             match action_opt {
                 Some(action) => match action {
-                    // EditorAction::Submit if self.editor.is_last_editor_active() => {}
+                    EditorAction::Submit if self.editor.is_last_editor_active() => self.submit(),
                     EditorAction::Submit => self.submit_field(),
                     EditorAction::ApplyInput(_) => {
                         self.editor.execute_action(action);
@@ -358,6 +342,15 @@ impl TaskEditor {
     //         true
     //     }
     // }
+
+    pub fn submit(&mut self) {
+        let data = self.parse_inputs();
+        let action = AppAction::MultiAction(vec![
+            AppAction::TaskAction(TaskAction::Create, data),
+            AppAction::UIAction(UIAction::NormalMode(NormalModeAction::ExitTaskEditor)),
+        ]);
+        let _ = self.tx.send(action);
+    }
 
     pub fn submit_field(&mut self) {
         // if !self.editor.is_last_editor_active() {

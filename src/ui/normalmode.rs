@@ -2,11 +2,9 @@ use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
-    widgets::{Block, Clear, Widget},
 };
 use std::{sync::Arc, time::Instant};
-use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
+use tachyonfx::EffectManager;
 use ticks::tasks::Task;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -14,9 +12,11 @@ use crate::{
     app::AppAction,
     ui::{
         UIAction,
+        animate::start_sweep,
         editor::EditorMode,
         taskeditor::TaskEditor,
         tasklist::TaskList,
+        utils::{centered_area, paint_background},
         viewselector::{View, ViewSelector},
     },
 };
@@ -46,16 +46,15 @@ pub struct NormalModeUI {
 impl NormalModeUI {
     pub fn new(tx: UnboundedSender<AppAction>) -> Self {
         let mut view_selector = ViewSelector::new(tx.clone());
-        view_selector.activate();
         let mut task_list = TaskList::new(Arc::new(vec![]), tx.clone());
-        task_list.deactivate();
         let mut task_editor = TaskEditor::new(tx.clone());
+        view_selector.activate();
+        task_list.deactivate();
         task_editor.deactivate();
+
         let mut effects: EffectManager<()> = EffectManager::default();
-        let c = Color::Rgb(25, 25, 25);
-        let timer = EffectTimer::from_ms(500, Interpolation::Linear);
-        let fx = fx::sweep_in(Motion::UpToDown, 10, 0, c, timer);
-        effects.add_effect(fx);
+        start_sweep(500, &mut effects);
+
         Self {
             view_selector,
             task_list,
@@ -104,8 +103,9 @@ impl NormalModeUI {
                 self.task_list.activate();
             }
             NormalModeAction::SwitchView(view) => {
-                self.task_list.filter_by_view(&view);
                 self.task_list.clear_selection();
+                self.task_list.filter_by_view(&view);
+                self.task_list.start_animation();
             }
         }
     }
@@ -158,9 +158,16 @@ impl NormalModeUI {
                     NormalModeAction::CreateNewTask,
                 )));
             }
+            // focus mode
             KeyCode::Char('f') if self.allow_key_cmd() => {
                 if let Some(view) = self.view_selector.get_current_view() {
                     let _ = tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
+                }
+            }
+            // batch mode
+            KeyCode::Char('b') if self.allow_key_cmd() => {
+                if let Some(view) = self.view_selector.get_current_view() {
+                    let _ = tx.send(AppAction::UIAction(UIAction::EnterBatchMode(view.clone())));
                 }
             }
             _ => self.view_selector.handle_key_event(key_event),
@@ -195,9 +202,15 @@ impl NormalModeUI {
                     NormalModeAction::CreateNewTask,
                 )));
             }
+            // enter focus mode
             KeyCode::Char('f') if self.allow_key_cmd() => {
                 if let Some(view) = self.view_selector.get_current_view() {
                     let _ = tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
+                }
+            }
+            KeyCode::Char('b') if self.allow_key_cmd() => {
+                if let Some(view) = self.view_selector.get_current_view() {
+                    let _ = tx.send(AppAction::UIAction(UIAction::EnterBatchMode(view.clone())));
                 }
             }
             _ => self.task_list.handle_key_event(key_event),
@@ -231,42 +244,35 @@ impl NormalModeUI {
     }
 
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
-        Clear.render(f.area(), f.buffer_mut());
-        Block::default()
-            .style(Style::default().bg(Color::Rgb(25, 25, 25)))
-            .render(f.area(), f.buffer_mut());
+        paint_background(f);
 
-        // let main_area = centered_area(area, 40, 140);
-        let main_area = area;
+        let main_area = centered_area(area, 40, 117);
+        let (view_sel_area, content_area) = create_areas(main_area);
 
-        let chunks = Layout::new(
-            Direction::Horizontal,
-            // vec![Constraint::Percentage(40), Constraint::Percentage(60)],
-            [
-                Constraint::Length(15),
-                Constraint::Fill(1),
-                // Constraint::Fill(1),
-            ],
-        )
-        .split(main_area);
+        self.view_selector.draw(f, view_sel_area, last_frame);
 
-        let left_chunks = Layout::new(
-            Direction::Vertical,
-            [Constraint::Length(17), Constraint::Fill(1)],
-        )
-        .split(chunks[0]);
-
-        self.view_selector.draw(f, left_chunks[0], last_frame);
         match self.active_pane {
-            ActivePane::ViewSelector | ActivePane::TaskList => {
-                self.task_list.draw(f, chunks[1], last_frame);
-            }
-            ActivePane::TaskEditor => {
-                self.task_editor.draw(f, chunks[1], last_frame);
-            }
+            ActivePane::TaskEditor => self.task_editor.draw(f, content_area, last_frame),
+            _ => self.task_list.draw(f, content_area, last_frame),
         }
+
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), main_area);
     }
+}
+
+fn create_areas(main_area: Rect) -> (Rect, Rect) {
+    let chunks = Layout::new(
+        Direction::Horizontal,
+        [Constraint::Length(15), Constraint::Fill(1)],
+    )
+    .split(main_area);
+
+    let left_chunks = Layout::new(
+        Direction::Vertical,
+        [Constraint::Length(17), Constraint::Fill(1)],
+    )
+    .split(chunks[0]);
+    (left_chunks[0], chunks[1])
 }
