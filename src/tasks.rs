@@ -551,17 +551,17 @@ impl RepeatFlag {
         }
     }
 
-    fn day_to_string(day: &RepeatDay) -> &'static str {
-        match day {
-            RepeatDay::Monday => "Monday",
-            RepeatDay::Tuesday => "Tuesday",
-            RepeatDay::Wednesday => "Wednesday",
-            RepeatDay::Thursday => "Thursday",
-            RepeatDay::Friday => "Friday",
-            RepeatDay::Saturday => "Saturday",
-            RepeatDay::Sunday => "Sunday",
-        }
-    }
+    // fn day_to_string(day: &RepeatDay) -> &'static str {
+    //     match day {
+    //         RepeatDay::Monday => "Monday",
+    //         RepeatDay::Tuesday => "Tuesday",
+    //         RepeatDay::Wednesday => "Wednesday",
+    //         RepeatDay::Thursday => "Thursday",
+    //         RepeatDay::Friday => "Friday",
+    //         RepeatDay::Saturday => "Saturday",
+    //         RepeatDay::Sunday => "Sunday",
+    //     }
+    // }
 
     fn day_to_short_string(day: &RepeatDay) -> &'static str {
         match day {

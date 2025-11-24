@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod confirm;
 pub mod debug;
 pub mod newtask;

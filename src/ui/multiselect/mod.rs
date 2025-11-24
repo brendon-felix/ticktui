@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Text},
-    widgets::{Block, BorderType, Borders, HighlightSpacing, StatefulWidget, Widget, WidgetRef},
+    widgets::{Block, BorderType, HighlightSpacing, StatefulWidget, Widget, WidgetRef},
 };
 
 pub use self::state::MultiSelectListState;

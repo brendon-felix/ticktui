@@ -1,10 +1,11 @@
 use std::time::Instant;
 
-use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use ratatui::{
     Frame,
-    layout::{Margin, Rect},
-    text::Line,
+    layout::{Constraint, Layout, Margin, Rect},
+    style::{Style, Stylize},
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
 use tokio::sync::mpsc::UnboundedSender;
@@ -26,50 +27,86 @@ use crate::{
         viewselector::View,
     },
 };
-use chrono::Local;
+use chrono::{DateTime, Local, Utc};
 use ticks::projects::ProjectID;
 
-pub struct NewTaskPopup {
+pub struct BatchCreatePopup {
     editor: Editor,
     view: View,
-    block: Block<'static>,
+    block_left: Block<'static>,
+    block_right: Block<'static>,
     tx: UnboundedSender<AppAction>,
     parser: TaskParser,
+    next_task_time: DateTime<Utc>,
 }
 
-impl NewTaskPopup {
+impl BatchCreatePopup {
     pub fn new(view: View, tx: UnboundedSender<AppAction>) -> Self {
         let mut editor = Editor::new().with_single_line();
         editor.set_mode(EditorMode::Insert);
+        let now = Utc::now();
         Self {
             editor,
             view,
-            block: Block::new()
-                .title("New Task")
+            block_left: Block::new()
+                .title("Batch Create Tasks")
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded),
+            block_right: Block::new()
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
             tx,
             parser: TaskParser::new(),
+            next_task_time: now,
         }
     }
 
     fn submit(&mut self) {
         let content = self.editor.get_content().trim().to_string();
         if !content.is_empty() {
-            let data = parse(&content, self.view.clone());
+            let mut data = parse(&content, self.view.clone(), self.next_task_time);
+
+            // If user didn't specify a due date, use the next_task_time
+            if data.due_date.is_none() {
+                data.due_date = Some(self.next_task_time);
+            }
+
+            // Update next_task_time for the next task (increment by 5 minutes)
+            if let Some(due_date) = &data.due_date {
+                self.next_task_time = *due_date + chrono::Duration::minutes(5);
+            }
+
             let _ = self
                 .tx
                 .send(AppAction::TaskAction(TaskAction::Create, data));
-            let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
+
+            // Clear the editor for the next task
+            self.editor.set_content("");
         }
     }
 }
 
-impl Popup for NewTaskPopup {
+impl Popup for BatchCreatePopup {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
             KeyCode::Esc => {
                 let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
+            }
+            KeyCode::Up if key_event.modifiers == KeyModifiers::SHIFT => {
+                // Increment next_task_time by 1 minute
+                self.next_task_time = self.next_task_time + chrono::Duration::minutes(1);
+            }
+            KeyCode::Down if key_event.modifiers == KeyModifiers::SHIFT => {
+                // Decrement next_task_time by 1 minute
+                self.next_task_time = self.next_task_time - chrono::Duration::minutes(1);
+            }
+            KeyCode::Up => {
+                // Increment next_task_time by 5 minutes
+                self.next_task_time = self.next_task_time + chrono::Duration::minutes(5);
+            }
+            KeyCode::Down => {
+                // Decrement next_task_time by 5 minutes
+                self.next_task_time = self.next_task_time - chrono::Duration::minutes(5);
             }
             _ => {
                 let input: Input = key_event.into();
@@ -102,25 +139,36 @@ impl Popup for NewTaskPopup {
     }
 
     fn draw(&mut self, f: &mut Frame, area: Rect, _last_frame: Instant) {
-        let popup_area = utils::centered_area_with_offset(area, 5, 60, 3);
+        let popup_area = utils::centered_area_with_offset(area, 5, 75, 3);
         f.render_widget(Clear, popup_area);
 
-        let inner_area = self.block.inner(popup_area).inner(Margin::new(2, 1));
-        f.render_widget(&self.block, popup_area);
+        let split = Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .split(popup_area);
+
+        let inner_area_left = self.block_left.inner(split[0]).inner(Margin::new(2, 1));
+        let inner_area_right = self.block_right.inner(split[1]).inner(Margin::new(2, 1));
+        f.render_widget(&self.block_left, split[0]);
+        f.render_widget(&self.block_right, split[1]);
+
         self.editor.update_style();
-        f.render_widget(&self.editor, inner_area);
+        f.render_widget(&self.editor, inner_area_left);
 
         // Render with syntax highlighting
         let content = self.editor.get_content();
         let spans = self.parser.highlighted_spans(&content);
-
         let line = Line::from(spans);
         let paragraph = Paragraph::new(line);
-        f.render_widget(paragraph, inner_area);
+        f.render_widget(paragraph, inner_area_left);
+
+        // Show next due time
+        let next_time_str = utils::format_datetime(self.next_task_time, false);
+        let time_info = Line::from(Span::styled(next_time_str, Style::default().bold())).centered();
+        let time_paragraph = Paragraph::new(time_info);
+        f.render_widget(time_paragraph, inner_area_right);
     }
 }
 
-fn parse(content: &str, view: View) -> TaskData {
+fn parse(content: &str, view: View, next_task_time: DateTime<Utc>) -> TaskData {
     let parser = TaskParser::new();
     let tokens = parser.parse(content);
 
@@ -167,47 +215,8 @@ fn parse(content: &str, view: View) -> TaskData {
 
     // Apply view-based defaults if user didn't specify them
     if !user_specified_date {
-        let now = Local::now();
-        let default_date = match view {
-            View::Today => {
-                // Default to today at midnight (all-day)
-                let today = now.date_naive();
-                Some(
-                    today
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap()
-                        .with_timezone(&chrono::Utc),
-                )
-            }
-            View::Tomorrow => {
-                // Default to tomorrow at midnight (all-day)
-                let tomorrow = (now + chrono::Duration::days(1)).date_naive();
-                Some(
-                    tomorrow
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap()
-                        .with_timezone(&chrono::Utc),
-                )
-            }
-            View::Week => {
-                // Default to today at midnight (all-day)
-                let today = now.date_naive();
-                Some(
-                    today
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap()
-                        .with_timezone(&chrono::Utc),
-                )
-            }
-            View::Inbox | View::All => None,
-        };
-        data.due_date = default_date;
+        // Use next_task_time instead of calculating based on view
+        data.due_date = Some(next_task_time);
     } else {
         // User specified a time-only (e.g., "3pm"), apply view-based date context
         if let Some(due_date) = data.due_date {

@@ -1,4 +1,4 @@
-use chrono::{Datelike, Timelike};
+use chrono::Timelike;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -20,6 +20,28 @@ pub fn centered_area(area: Rect, height: u16, width: u16) -> Rect {
             Direction::Vertical,
             [
                 Constraint::Fill(1),
+                Constraint::Length(height),
+                Constraint::Fill(1),
+            ],
+        )
+        .split(area)[1],
+    )[1]
+}
+
+pub fn centered_area_with_offset(area: Rect, height: u16, width: u16, offset: u16) -> Rect {
+    Layout::new(
+        Direction::Horizontal,
+        [
+            Constraint::Fill(1),
+            Constraint::Length(width),
+            Constraint::Fill(1),
+        ],
+    )
+    .split(
+        Layout::new(
+            Direction::Vertical,
+            [
+                Constraint::Length(offset),
                 Constraint::Length(height),
                 Constraint::Fill(1),
             ],

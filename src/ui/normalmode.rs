@@ -169,12 +169,13 @@ impl NormalModeUI {
                     let _ = tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
                 }
             }
-            // batch mode
-            KeyCode::Char('b') if self.allow_key_cmd() => {
-                if let Some(view) = self.view_selector.get_current_view() {
-                    let _ = tx.send(AppAction::UIAction(UIAction::EnterBatchMode(view.clone())));
-                }
-            }
+            // // batch mode
+            // KeyCode::Char('b') if self.allow_key_cmd() => {
+            //     if let Some(view) = self.view_selector.get_current_view() {
+            //         // let _ = tx.send(AppAction::UIAction(UIAction::EnterBatchMode(view.clone())));
+            //         let _ = tx.send(AppAction::Batch
+            //     }
+            // }
             _ => self.view_selector.handle_key_event(key_event),
         }
     }
@@ -213,11 +214,11 @@ impl NormalModeUI {
                     let _ = tx.send(AppAction::UIAction(UIAction::EnterFocusMode(view.clone())));
                 }
             }
-            KeyCode::Char('b') if self.allow_key_cmd() => {
-                if let Some(view) = self.view_selector.get_current_view() {
-                    let _ = tx.send(AppAction::UIAction(UIAction::EnterBatchMode(view.clone())));
-                }
-            }
+            // KeyCode::Char('b') if self.allow_key_cmd() => {
+            //     if let Some(view) = self.view_selector.get_current_view() {
+            //         let _ = tx.send(AppAction::UIAction(UIAction::EnterBatchMode(view.clone())));
+            //     }
+            // }
             _ => self.task_list.handle_key_event(key_event),
         }
     }

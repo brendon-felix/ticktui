@@ -1,4 +1,4 @@
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Color, Style, Stylize};
 use tui_textarea::{CursorMove, Input, Key, TextArea};
 
 use crate::ui::editor::TextObjectModifier;
@@ -144,7 +144,7 @@ pub fn cursor_style(mode: EditorMode, is_active: bool) -> Style {
         EditorMode::Replace => Color::LightCyan,
         EditorMode::Visual(_) => Color::LightBlue,
     };
-    Style::default().fg(color).add_modifier(Modifier::REVERSED)
+    Style::default().fg(color).reversed()
 }
 
 // pub fn create_block<'a>(
