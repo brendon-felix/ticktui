@@ -387,7 +387,7 @@ impl TaskList {
 }
 
 fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
-    let line1 = Line::from("");
+    // let line1 = Line::from("");
     let mut spans = vec![Span::from(task.title.clone()).style(Style::default())];
     if let Some(priority_syle) = match task.priority {
         TaskPriority::High => Style::default().fg(Color::Red).into(),
@@ -399,12 +399,13 @@ fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
         spans.insert(0, priority_symbol);
     }
     let line2 = Line::from(spans);
-    let line3 = Line::from("");
-    MultiSelectListItem::new(vec![line1, line2, line3])
+    // let line3 = Line::from("");
+    // MultiSelectListItem::new(vec![line1, line2, line3])
+    MultiSelectListItem::new(line2)
 }
 
 fn create_list_right_item(now: DateTime<Utc>, task: &Arc<Task>) -> MultiSelectListItem<'static> {
-    let line1 = Line::from("");
+    // let line1 = Line::from("");
     let line2 = if task.due_date.timestamp() > 0 {
         let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
         let mut spans = vec![Span::from(datetime_str)];
@@ -431,6 +432,7 @@ fn create_list_right_item(now: DateTime<Utc>, task: &Arc<Task>) -> MultiSelectLi
     } else {
         Line::from(" ").right_aligned()
     };
-    let line3 = Line::from("");
-    MultiSelectListItem::new(vec![line1, line2, line3])
+    // let line3 = Line::from("");
+    // MultiSelectListItem::new(vec![line1, line2, line3])
+    MultiSelectListItem::new(line2)
 }

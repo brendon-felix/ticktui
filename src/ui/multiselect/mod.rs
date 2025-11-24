@@ -3,7 +3,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Text},
-    widgets::{Block, BorderType, HighlightSpacing, StatefulWidget, Widget, WidgetRef},
+    widgets::{Block, BorderType, Borders, HighlightSpacing, StatefulWidget, Widget, WidgetRef},
 };
 
 pub use self::state::MultiSelectListState;
@@ -258,7 +258,7 @@ impl StatefulWidget for &MultiSelectList<'_> {
             if is_selected {
                 buf.set_style(row_area, self.highlight_style);
                 Block::default()
-                    .border_set(BorderType::QuadrantOutside.to_border_set())
+                    // .border_set(BorderType::QuadrantOutside.to_border_set())
                     // .borders(Borders::LEFT | Borders::RIGHT)
                     // .borders(Borders::LEFT)
                     // .border_style(self.highlight_style)

@@ -252,7 +252,7 @@ impl NormalModeUI {
     pub fn draw(&mut self, f: &mut Frame, area: Rect, last_frame: Instant) {
         paint_background(f);
 
-        let main_area = centered_area(area, 40, 117);
+        let main_area = centered_area(area, 38, 117);
         let (view_sel_area, content_area) = create_areas(main_area);
 
         self.view_selector.draw(f, view_sel_area, last_frame);
