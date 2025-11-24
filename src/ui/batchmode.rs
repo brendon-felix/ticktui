@@ -15,7 +15,7 @@ use tui_textarea::Input;
 
 use crate::{
     app::AppAction,
-    tasks::TaskData,
+    tasks::{TaskData, format_repeat_flag},
     ui::{
         UIAction,
         composite::{CompositeEditor, CompositeEditorState},
@@ -430,7 +430,13 @@ impl BatchModeUI {
 fn create_list_item(task: &TaskData) -> ListItem<'static> {
     let title = task.title.as_deref().unwrap_or("");
     // let line1 = Line::from("");
-    let line2 = Line::from(format!(" {}", title));
+    let mut line2_text = format!(" {}", title);
+
+    if let Some(repeat_str) = format_repeat_flag(&task.repeat_flag) {
+        line2_text.push_str(&format!(" {}", repeat_str));
+    }
+
+    let line2 = Line::from(line2_text);
     let line3 = Line::from("");
     ListItem::from(vec![line2, line3])
 }
@@ -440,7 +446,14 @@ fn create_list_item_right(now: DateTime<Local>, task: &TaskData) -> ListItem<'st
         task.due_date.unwrap().time() == chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap();
     let line2 = if task.due_date.unwrap().timestamp() > 0 {
         let datetime_str = utils::format_datetime(task.due_date.unwrap(), is_all_day);
-        let mut span = Span::from(datetime_str);
+        let mut spans = vec![Span::from(datetime_str)];
+
+        if let Some(repeat_str) = format_repeat_flag(&task.repeat_flag) {
+            spans.push(Span::from(" • "));
+            spans.push(Span::from(repeat_str));
+        }
+        spans.push(Span::from(" "));
+
         let now = now
             .date_naive()
             .and_hms_opt(0, 0, 0)
@@ -448,12 +461,14 @@ fn create_list_item_right(now: DateTime<Local>, task: &TaskData) -> ListItem<'st
             .and_local_timezone(Local)
             .unwrap()
             .with_timezone(&chrono::Utc);
+
+        let mut line = Line::from(spans);
         if task.due_date.unwrap().timestamp() > 0 && task.due_date.unwrap() < now {
-            span = span.style(Style::default().fg(Color::Red).dim());
+            line = line.style(Style::default().fg(Color::Red).dim());
         } else {
-            span = span.style(Style::default().dim());
+            line = line.style(Style::default().dim());
         }
-        Line::from(vec![span, Span::from(" ")]).right_aligned()
+        line.right_aligned()
     } else {
         Line::from(" ").right_aligned()
     };

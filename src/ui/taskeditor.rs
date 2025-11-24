@@ -152,9 +152,9 @@ impl TaskEditor {
         self.editor.set_active_editor(Some(0));
     }
 
-    pub fn set_mode(&mut self, mode: EditorMode) {
-        self.editor.set_mode(mode);
-    }
+    // pub fn set_mode(&mut self, mode: EditorMode) {
+    //     self.editor.set_mode(mode);
+    // }
 
     pub fn set_title_content(&mut self, title: &str) {
         self.editor.editors[0].set_content(title);

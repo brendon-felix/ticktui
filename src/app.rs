@@ -10,7 +10,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use crate::{
     tasks::{self, TaskAction, TaskData, fetch_all_tasks},
     term::{self, AppTerminal},
-    ui::{AppUI, UIAction},
+    ui::{AppUI, UIAction, debug_msg},
 };
 
 #[derive(Debug, Clone)]
@@ -102,7 +102,8 @@ impl App {
                     let _ = tx.send(AppAction::UpdateCache);
                 }
                 Err(e) => {
-                    let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(e.to_string())));
+                    // let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(e.to_string())));
+                    debug_msg(&e.to_string(), 20, &tx);
                 }
             }
         });

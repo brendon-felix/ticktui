@@ -42,7 +42,7 @@ pub enum UIAction {
     Confirm(Box<AppAction>),
     NewTask,
     ClosePopup,
-    DebugMsg(String),
+    DebugMsg(String, u16),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,7 +75,7 @@ impl AppUI {
         }
     }
 
-    pub fn execute_action(&mut self, action: UIAction, _tx: &UnboundedSender<AppAction>) {
+    pub fn execute_action(&mut self, action: UIAction, tx: &UnboundedSender<AppAction>) {
         match action {
             UIAction::EnterFocusMode(view) => {
                 self.mode = AppUIMode::Focus;
@@ -88,7 +88,7 @@ impl AppUI {
                 self.mode = AppUIMode::Batch;
             }
             UIAction::NormalMode(normal_action) => {
-                self.normal_ui.execute_action(normal_action);
+                self.normal_ui.execute_action(normal_action, tx);
             }
             UIAction::FocusMode(focus_action) => {
                 self.focus_ui.execute_action(focus_action);
@@ -102,8 +102,8 @@ impl AppUI {
             UIAction::ClosePopup => {
                 self.close_popup();
             }
-            UIAction::DebugMsg(msg) => {
-                self.debug(msg);
+            UIAction::DebugMsg(msg, n_ticks) => {
+                self.debug(msg, n_ticks);
             }
         }
     }
@@ -124,10 +124,10 @@ impl AppUI {
         // self.normal_ui.reset_areas();
     }
 
-    pub fn debug(&mut self, msg: String) {
+    pub fn debug(&mut self, msg: String, n_ticks: u16) {
         self.debug_popup = Some(DebugPopup::new(
             Text::from(msg),
-            20, // 2 seconds
+            n_ticks, // 2 seconds
             self.tx.clone(),
         ));
     }
@@ -241,4 +241,11 @@ impl AppUI {
             debug_popup.draw(f, area, last_frame);
         }
     }
+}
+
+pub fn debug_msg(msg: &str, n_ticks: u16, tx: &UnboundedSender<AppAction>) {
+    let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(
+        msg.to_string(),
+        n_ticks,
+    )));
 }

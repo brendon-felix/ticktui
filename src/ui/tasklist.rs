@@ -1,8 +1,8 @@
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
@@ -14,7 +14,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
-    tasks::{TaskAction, TaskData, is_overdue},
+    tasks::{TaskAction, TaskData, format_repeat_flag, is_overdue},
     ui::{
         UIAction,
         multiselect::{MultiSelectList, MultiSelectListItem, MultiSelectListState},
@@ -57,7 +57,6 @@ impl TaskList {
             );
         let list_right = MultiSelectList::default()
             .with_block(current_block.clone())
-            .with_highlight_symbol(" ")
             .with_highlight_style(
                 Style::new()
                     .bg(Color::Rgb(30, 30, 30))
@@ -369,11 +368,17 @@ impl TaskList {
         // }
         // let effect_area = task_list.calculate_effect_area(area);
         if let Some(block) = self.current_block.clone() {
-            self.list_left.set_block(block.clone());
-            self.list_right.set_block(block);
+            self.list_left.set_block(
+                block
+                    .clone()
+                    .borders(Borders::LEFT | Borders::TOP | Borders::BOTTOM),
+            );
+            self.list_right
+                .set_block(block.borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM));
         }
-        f.render_stateful_widget(&self.list_right, area, &mut self.list_state);
-        f.render_stateful_widget(&self.list_left, area, &mut self.list_state);
+        let split_area = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(area);
+        f.render_stateful_widget(&self.list_right, split_area[1], &mut self.list_state);
+        f.render_stateful_widget(&self.list_left, split_area[0], &mut self.list_state);
         let elapsed = last_frame.elapsed();
         self.effects
             .process_effects(elapsed.into(), f.buffer_mut(), area);
@@ -402,14 +407,27 @@ fn create_list_right_item(now: DateTime<Utc>, task: &Arc<Task>) -> MultiSelectLi
     let line1 = Line::from("");
     let line2 = if task.due_date.timestamp() > 0 {
         let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
-        // let mut line2 = Line::from(datetime_str).right_aligned();
-        let mut span = Span::from(datetime_str);
-        if is_overdue(now, task) {
-            span = span.style(Style::default().fg(Color::Red).dim());
+        let mut spans = vec![Span::from(datetime_str)];
+
+        // Add repeat flag if present
+        let repeat_flag = if !task.repeat_flag.is_empty() {
+            Some(task.repeat_flag.clone())
         } else {
-            span = span.style(Style::default().dim());
+            None
+        };
+        if let Some(repeat_str) = format_repeat_flag(&repeat_flag) {
+            spans.push(Span::from(" • "));
+            spans.push(Span::from(repeat_str));
         }
-        Line::from(vec![span, Span::from(" ")]).right_aligned()
+        spans.push(Span::from(" "));
+
+        let mut line = Line::from(spans);
+        if is_overdue(now, task) {
+            line = line.style(Style::default().fg(Color::Red).dim());
+        } else {
+            line = line.style(Style::default().dim());
+        }
+        line.right_aligned()
     } else {
         Line::from(" ").right_aligned()
     };

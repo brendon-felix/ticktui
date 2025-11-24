@@ -260,7 +260,7 @@ impl StatefulWidget for &MultiSelectList<'_> {
                 Block::default()
                     .border_set(BorderType::QuadrantOutside.to_border_set())
                     // .borders(Borders::LEFT | Borders::RIGHT)
-                    .borders(Borders::LEFT)
+                    // .borders(Borders::LEFT)
                     // .border_style(self.highlight_style)
                     // .border_style(Style::default().fg(Color::Indexed(1)))
                     .render(row_area, buf);

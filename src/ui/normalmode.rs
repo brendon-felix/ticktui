@@ -13,7 +13,7 @@ use crate::{
     ui::{
         UIAction,
         animate::start_sweep,
-        editor::EditorMode,
+        debug_msg,
         taskeditor::TaskEditor,
         tasklist::TaskList,
         utils::{centered_area, paint_background},
@@ -64,7 +64,7 @@ impl NormalModeUI {
         }
     }
 
-    pub fn execute_action(&mut self, action: NormalModeAction) {
+    pub fn execute_action(&mut self, action: NormalModeAction, tx: &UnboundedSender<AppAction>) {
         match action {
             NormalModeAction::EditTask(task) => {
                 self.task_editor.load_task(&task);
@@ -72,6 +72,7 @@ impl NormalModeUI {
                 self.view_selector.deactivate();
                 self.task_list.deactivate();
                 self.task_editor.activate();
+                debug_msg(&format!("repeat: {:?}", task.repeat_flag), 40, tx);
             }
             NormalModeAction::CreateNewTask => {
                 // self.task_editor.clear_all_fields();

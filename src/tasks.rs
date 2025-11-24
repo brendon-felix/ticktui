@@ -18,8 +18,8 @@ pub struct TaskData {
     pub due_date: Option<DateTime<Utc>>,
     // subtasks: Vec<Subtask>, // not supported yet
     pub priority: Option<TaskPriority>,
+    pub repeat_flag: Option<String>,
     // reminders: Option<Vec<String>>, // not supported yet
-    // repeat_flag: Option<String>, // not supported yet
     // sort_order, Option<i64>, // not supported
     // start_date: Option<DateTime<Utc>>, // not supported yet
     // status: Option<TaskStatus>, // again, not sure API even sends completed tasks
@@ -37,6 +37,11 @@ impl TaskData {
             content: Some(task.content.clone()),
             due_date: Some(task.due_date),
             priority: Some(task.priority),
+            repeat_flag: if task.repeat_flag.is_empty() {
+                None
+            } else {
+                Some(task.repeat_flag.clone())
+            },
         }
     }
 
@@ -67,6 +72,11 @@ impl TaskData {
 
     pub fn priority(mut self, priority: TaskPriority) -> Self {
         self.priority = Some(priority);
+        self
+    }
+
+    pub fn repeat_flag(mut self, repeat_flag: String) -> Self {
+        self.repeat_flag = Some(repeat_flag);
         self
     }
 }
@@ -197,6 +207,10 @@ pub async fn create_task(client: &TickTick, data: TaskData) -> Result<(), String
 
     if let Some(priority) = data.priority {
         builder = builder.priority(priority);
+    }
+
+    if let Some(repeat_flag) = data.repeat_flag {
+        builder = builder.repeat_flag(&repeat_flag);
     }
 
     match builder.build_and_publish().await {
@@ -371,4 +385,231 @@ pub fn sort_tasks(tasks: &mut Vec<Task>) {
         // If all dates are equal, sort by sort_order
         a.sort_order.cmp(&b.sort_order)
     });
+}
+
+#[derive(Debug, Clone)]
+pub enum RepeatFreq {
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly,
+    Weekdays,
+    // Custom(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum RepeatDay {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+}
+
+#[derive(Debug, Clone)]
+pub struct RepeatFlag {
+    freq: RepeatFreq,
+    interval: u32,
+    days: Option<Vec<RepeatDay>>,
+}
+impl RepeatFlag {
+    pub fn new(freq: RepeatFreq, interval: u32, days: Option<Vec<RepeatDay>>) -> Self {
+        Self {
+            freq,
+            interval,
+            days,
+        }
+    }
+
+    /// Parse an RRULE string into a RepeatFlag
+    /// Example: "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,FR"
+    pub fn from_string(rrule: &str) -> Option<Self> {
+        if rrule.is_empty() {
+            return None;
+        }
+
+        // Remove "RRULE:" prefix if present
+        let rule = rrule.strip_prefix("RRULE:").unwrap_or(rrule);
+
+        let mut freq = None;
+        let mut interval = 1u32;
+        let mut days = None;
+
+        // Parse the RRULE components
+        for part in rule.split(';') {
+            if let Some((key, value)) = part.split_once('=') {
+                match key {
+                    "FREQ" => {
+                        freq = match value {
+                            "DAILY" => Some(RepeatFreq::Daily),
+                            "WEEKLY" => Some(RepeatFreq::Weekly),
+                            "MONTHLY" => Some(RepeatFreq::Monthly),
+                            "YEARLY" => Some(RepeatFreq::Yearly),
+                            _ => None,
+                        };
+                    }
+                    "INTERVAL" => {
+                        interval = value.parse().unwrap_or(1);
+                    }
+                    "BYDAY" => {
+                        let parsed_days: Vec<RepeatDay> = value
+                            .split(',')
+                            .filter_map(|day| match day {
+                                "MO" => Some(RepeatDay::Monday),
+                                "TU" => Some(RepeatDay::Tuesday),
+                                "WE" => Some(RepeatDay::Wednesday),
+                                "TH" => Some(RepeatDay::Thursday),
+                                "FR" => Some(RepeatDay::Friday),
+                                "SA" => Some(RepeatDay::Saturday),
+                                "SU" => Some(RepeatDay::Sunday),
+                                _ => None,
+                            })
+                            .collect();
+
+                        // Check if this is the weekdays pattern
+                        if parsed_days.len() == 5
+                            && parsed_days.iter().all(|d| {
+                                matches!(
+                                    d,
+                                    RepeatDay::Monday
+                                        | RepeatDay::Tuesday
+                                        | RepeatDay::Wednesday
+                                        | RepeatDay::Thursday
+                                        | RepeatDay::Friday
+                                )
+                            })
+                        {
+                            freq = Some(RepeatFreq::Weekdays);
+                        } else if !parsed_days.is_empty() {
+                            days = Some(parsed_days);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        freq.map(|f| Self::new(f, interval, days))
+    }
+
+    /// Create a human-readable string representation of the repeat pattern
+    pub fn to_pretty_string(&self) -> String {
+        match (&self.freq, self.interval, &self.days) {
+            // Weekdays special case
+            (RepeatFreq::Weekdays, _, _) => " weekdays".to_string(),
+
+            // Daily patterns
+            (RepeatFreq::Daily, 1, _) => " daily".to_string(),
+            (RepeatFreq::Daily, 2, _) => " every other day".to_string(),
+            (RepeatFreq::Daily, n, _) => format!(" every {} days", n),
+
+            // Weekly patterns
+            (RepeatFreq::Weekly, 1, None) => " weekly".to_string(),
+            (RepeatFreq::Weekly, 1, Some(days)) if days.len() == 1 => {
+                format!(
+                    " every {}",
+                    Self::day_to_short_string(&days[0]).to_lowercase()
+                )
+            }
+            (RepeatFreq::Weekly, 1, Some(days)) => {
+                let days_str = days
+                    .iter()
+                    .map(|d| Self::day_to_short_string(d).to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" every {}", days_str)
+            }
+            (RepeatFreq::Weekly, n, None) => format!(" every {} weeks", n),
+            (RepeatFreq::Weekly, 2, Some(days)) => {
+                let days_str = days
+                    .iter()
+                    .map(|d| Self::day_to_short_string(d).to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" every other {}", days_str)
+            }
+            (RepeatFreq::Weekly, n, Some(days)) => {
+                let days_str = days
+                    .iter()
+                    .map(|d| Self::day_to_short_string(d).to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" every {} weeks on {}", n, days_str)
+            }
+
+            // Monthly patterns
+            (RepeatFreq::Monthly, 1, _) => " monthly".to_string(),
+            (RepeatFreq::Monthly, 2, _) => " every other month".to_string(),
+            (RepeatFreq::Monthly, n, _) => format!(" every {} months", n),
+
+            // Yearly patterns
+            (RepeatFreq::Yearly, 1, _) => " yearly".to_string(),
+            (RepeatFreq::Yearly, 2, _) => " every other year".to_string(),
+            (RepeatFreq::Yearly, n, _) => format!(" every {} years", n),
+        }
+    }
+
+    fn day_to_string(day: &RepeatDay) -> &'static str {
+        match day {
+            RepeatDay::Monday => "Monday",
+            RepeatDay::Tuesday => "Tuesday",
+            RepeatDay::Wednesday => "Wednesday",
+            RepeatDay::Thursday => "Thursday",
+            RepeatDay::Friday => "Friday",
+            RepeatDay::Saturday => "Saturday",
+            RepeatDay::Sunday => "Sunday",
+        }
+    }
+
+    fn day_to_short_string(day: &RepeatDay) -> &'static str {
+        match day {
+            RepeatDay::Monday => "Mon",
+            RepeatDay::Tuesday => "Tue",
+            RepeatDay::Wednesday => "Wed",
+            RepeatDay::Thursday => "Thu",
+            RepeatDay::Friday => "Fri",
+            RepeatDay::Saturday => "Sat",
+            RepeatDay::Sunday => "Sun",
+        }
+    }
+
+    pub fn build(&self) -> String {
+        let mut flag = String::from("RRULE:");
+        let freq_str = match &self.freq {
+            RepeatFreq::Daily => "FREQ=DAILY",
+            RepeatFreq::Weekly => "FREQ=WEEKLY",
+            RepeatFreq::Monthly => "FREQ=MONTHLY",
+            RepeatFreq::Yearly => "FREQ=YEARLY",
+            RepeatFreq::Weekdays => "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+            // RepeatFreq::Custom(s) => s,
+        };
+        flag += freq_str;
+        flag += &format!(";INTERVAL={}", self.interval);
+        if let Some(days) = &self.days {
+            let days_str: Vec<&str> = days
+                .iter()
+                .map(|day| match day {
+                    RepeatDay::Monday => "MO",
+                    RepeatDay::Tuesday => "TU",
+                    RepeatDay::Wednesday => "WE",
+                    RepeatDay::Thursday => "TH",
+                    RepeatDay::Friday => "FR",
+                    RepeatDay::Saturday => "SA",
+                    RepeatDay::Sunday => "SU",
+                })
+                .collect();
+            flag += &format!(";BYDAY={}", days_str.join(","));
+        }
+        flag
+    }
+}
+
+/// Helper function to format an optional repeat flag string for display
+pub fn format_repeat_flag(repeat_flag: &Option<String>) -> Option<String> {
+    repeat_flag
+        .as_ref()
+        .and_then(|flag| RepeatFlag::from_string(flag))
+        .map(|rf| rf.to_pretty_string())
 }

@@ -3,7 +3,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 use std::{sync::Arc, time::Duration};
@@ -11,7 +11,7 @@ use tachyonfx::{EffectManager, EffectTimer, Interpolation, RefRect, fx};
 use ticks::tasks::{Task, TaskPriority};
 
 use crate::{
-    tasks::is_overdue,
+    tasks::{format_repeat_flag, is_overdue},
     term::TICK_PERIOD_MS,
     ui::{
         animate::{Animation, AnimationDirection, AnimationType},
@@ -34,8 +34,22 @@ pub fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
     let line2 = Line::from(task.title.clone());
     // let line3 = if let Some(date_str) = format_date(&task.due_date, task.is_all_day, is_today) {
     let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+
+    // Add repeat flag if present
+    let repeat_flag = if !task.repeat_flag.is_empty() {
+        Some(task.repeat_flag.clone())
+    } else {
+        None
+    };
+    let repeat_str = format_repeat_flag(&repeat_flag);
+
     let line3 = {
-        let mut line = Line::from(datetime_str);
+        let mut spans = vec![Span::from(datetime_str)];
+        if let Some(repeat) = repeat_str {
+            spans.push(Span::from(" • "));
+            spans.push(Span::from(repeat));
+        }
+        let mut line = Line::from(spans);
         if is_overdue(now, task) {
             line = line.style(Style::default().fg(Color::Red).dim());
         } else {

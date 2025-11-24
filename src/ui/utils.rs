@@ -425,7 +425,7 @@ pub fn parse_datetime(input: &str) -> Result<chrono::NaiveDateTime, String> {
 /// Uses "Today" and "Tomorrow" keywords when applicable, otherwise formats as date and time
 /// If is_all_day is true, omits the time portion
 pub fn format_datetime(dt: chrono::DateTime<chrono::Utc>, is_all_day: bool) -> String {
-    use chrono::{Local, NaiveTime};
+    use chrono::{Datelike, Local, NaiveTime, Weekday};
 
     let now = Local::now();
     let today = now.date_naive();
@@ -434,6 +434,9 @@ pub fn format_datetime(dt: chrono::DateTime<chrono::Utc>, is_all_day: bool) -> S
     let dt_date = local_dt.date();
     let dt_time = local_dt.time();
     let midnight = NaiveTime::from_hms_opt(0, 0, 0).unwrap();
+
+    // Calculate days difference
+    let days_diff = (dt_date - today).num_days();
 
     // Check if it's today or tomorrow
     if dt_date == today {
@@ -452,8 +455,40 @@ pub fn format_datetime(dt: chrono::DateTime<chrono::Utc>, is_all_day: bool) -> S
             // Tomorrow with specific time
             format!("Tomorrow {}", format_time(dt_time))
         }
+    } else if days_diff > 1 && days_diff <= 7 {
+        // Within next 7 days (excluding today/tomorrow): show day name
+        let day_name = match dt_date.weekday() {
+            Weekday::Mon => "Monday",
+            Weekday::Tue => "Tuesday",
+            Weekday::Wed => "Wednesday",
+            Weekday::Thu => "Thursday",
+            Weekday::Fri => "Friday",
+            Weekday::Sat => "Saturday",
+            Weekday::Sun => "Sunday",
+        };
+        if is_all_day || dt_time == midnight {
+            day_name.to_string()
+        } else {
+            format!("{} {}", day_name, format_time(dt_time))
+        }
+    } else if days_diff > 7 && days_diff <= 14 {
+        // Between 7 and 14 days: show "Next Mon", "Next Tue", etc.
+        let day_abbrev = match dt_date.weekday() {
+            Weekday::Mon => "Mon",
+            Weekday::Tue => "Tue",
+            Weekday::Wed => "Wed",
+            Weekday::Thu => "Thu",
+            Weekday::Fri => "Fri",
+            Weekday::Sat => "Sat",
+            Weekday::Sun => "Sun",
+        };
+        if is_all_day || dt_time == midnight {
+            format!("Next {}", day_abbrev)
+        } else {
+            format!("Next {} {}", day_abbrev, format_time(dt_time))
+        }
     } else {
-        // Other date
+        // Other date (past or > 14 days in future)
         if is_all_day || dt_time == midnight {
             // Date only (all day or midnight)
             format!("{}/{}/{}", dt_date.month(), dt_date.day(), dt_date.year())
