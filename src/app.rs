@@ -8,9 +8,10 @@ use ticks::{TickTick, tasks::Task};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::{
+    debug,
     tasks::{self, TaskAction, TaskData, fetch_all_tasks},
     term::{self, AppTerminal},
-    ui::{AppUI, UIAction, debug_msg},
+    ui::{AppUI, UIAction},
 };
 
 #[derive(Debug, Clone)]
@@ -22,6 +23,7 @@ pub enum AppAction {
     RefreshData,
     UpdateCache,
     TaskAction(TaskAction, TaskData),
+    RescheduleMultipleTasks(Vec<TaskData>),
     UIAction(UIAction),
     MultiAction(Vec<AppAction>),
     AfterNTicks(u32, Box<AppAction>),
@@ -53,6 +55,7 @@ impl App {
         let ti = AppTerminal::new()?;
         let ui = AppUI::new(tx.clone());
         let quitting = false;
+        debug::init_debug_sender(tx.clone());
         Ok(Self {
             client,
             cached_tasks,
@@ -103,7 +106,8 @@ impl App {
                 }
                 Err(e) => {
                     // let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(e.to_string())));
-                    debug_msg(&e.to_string(), 20, &tx);
+                    // debug_msg(&e.to_string(), 20, &tx);
+                    debug::debug_msg(&e.to_string(), Some(20));
                 }
             }
         });
@@ -142,10 +146,17 @@ impl App {
         tx: &UnboundedSender<AppAction>,
     ) -> Result<()> {
         match key_event.code {
-            KeyCode::Char('q') if self.ui.allow_key_cmd() => tx.send(AppAction::UIAction(
-                UIAction::Confirm(Box::new(AppAction::Quit)),
-            ))?,
-            KeyCode::Char('r') if self.ui.allow_key_cmd() => tx.send(AppAction::RefreshData)?,
+            KeyCode::Char('q') if self.ui.allow_key_cmd() => {
+                tx.send(AppAction::UIAction(UIAction::Confirm(
+                    ratatui::text::Text::from("Are you sure you want to quit?"),
+                    Box::new(AppAction::Quit),
+                )))?
+            }
+            KeyCode::Char('r')
+                if key_event.modifiers == KeyModifiers::CONTROL && self.ui.allow_key_cmd() =>
+            {
+                tx.send(AppAction::RefreshData)?
+            }
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
                 tx.send(AppAction::Quit)?
             }
@@ -186,6 +197,9 @@ impl App {
             AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
             AppAction::TaskAction(action, data) => self.execute_task_action(action, data, tx),
+            AppAction::RescheduleMultipleTasks(task_data_list) => {
+                self.execute_reschedule_multiple_tasks(task_data_list, tx)
+            }
             AppAction::UIAction(action) => self.ui.execute_action(action, tx),
             AppAction::MultiAction(actions) => {
                 for act in actions {
@@ -219,8 +233,19 @@ impl App {
                 TaskAction::Edit => tasks::edit_task(&client, data).await,
                 TaskAction::Complete => tasks::complete_task(&client, data).await,
                 TaskAction::Delete => tasks::delete_task(&client, data).await,
+                TaskAction::Reschedule => tasks::reschedule_task(&client, data).await,
             }
         });
+        self.refresh_tasks(tx.clone())
+    }
+
+    fn execute_reschedule_multiple_tasks(
+        &mut self,
+        task_data_list: Vec<TaskData>,
+        tx: &UnboundedSender<AppAction>,
+    ) {
+        let client = Arc::clone(&self.client);
+        let _ = tokio::spawn(async move { tasks::reschedule_tasks(&client, task_data_list).await });
         self.refresh_tasks(tx.clone())
     }
 

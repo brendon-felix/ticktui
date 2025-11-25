@@ -216,23 +216,23 @@ pub fn parse_time_us_format(time_str: &str) -> Result<chrono::NaiveTime, String>
         .ok_or_else(|| format!("Invalid time: {}:{:02}", hour_24, minute))
 }
 
-// /// Represents the target for a postpone operation
+// /// Represents the target for a reschedule operation
 // #[derive(Debug)]
-// pub enum PostponeTarget {
+// pub enum RescheduleTarget {
 //     /// Relative to the task's original due datetime (e.g., "5min", "2 hours")
 //     RelativeToDueDate(chrono::Duration),
 //     /// Absolute time from now (e.g., "now", "now + 5min")
 //     AbsoluteTime(chrono::DateTime<chrono::Local>),
 // }
 
-// /// Parse duration expression and return the postpone target
+// /// Parse duration expression and return the reschedule target
 // /// Supports formats like:
 // /// - "now" - current time (absolute)
 // /// - "5min", "5 minutes" - 5 minutes from task's due date (relative)
 // /// - "10hr", "10 hours" - 10 hours from task's due date (relative)
 // /// - "2day", "2 days" - 2 days from task's due date (relative)
 // /// - "now + 5min", "now+5 minutes" - 5 minutes from now (absolute)
-// pub fn parse_duration(duration_str: &str) -> Result<PostponeTarget, String> {
+// pub fn parse_duration(duration_str: &str) -> Result<RescheduleTarget, String> {
 //     use chrono::Local;
 
 //     let duration_str = duration_str.trim().to_lowercase();
@@ -242,7 +242,7 @@ pub fn parse_time_us_format(time_str: &str) -> Result<chrono::NaiveTime, String>
 
 //     // Handle "now" case without additional duration
 //     if duration_str == "now" {
-//         return Ok(PostponeTarget::AbsoluteTime(Local::now()));
+//         return Ok(RescheduleTarget::AbsoluteTime(Local::now()));
 //     }
 
 //     // Get the duration part
@@ -292,9 +292,9 @@ pub fn parse_time_us_format(time_str: &str) -> Result<chrono::NaiveTime, String>
 //     };
 
 //     if is_absolute {
-//         Ok(PostponeTarget::AbsoluteTime(Local::now() + duration))
+//         Ok(RescheduleTarget::AbsoluteTime(Local::now() + duration))
 //     } else {
-//         Ok(PostponeTarget::RelativeToDueDate(duration))
+//         Ok(RescheduleTarget::RelativeToDueDate(duration))
 //     }
 // }
 

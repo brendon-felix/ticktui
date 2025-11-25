@@ -135,6 +135,10 @@ impl FocusModeUI {
         // self.tasks_loaded = true;
     }
 
+    pub fn get_current_task(&self) -> Option<Arc<Task>> {
+        self.get_focused_task().map(|(_, task)| task)
+    }
+
     fn get_focused_task(&self) -> Option<(usize, Arc<Task>)> {
         if let Some(idx) = self.list.focused_index() {
             if let Some(task_id) = self.shown_tasks.get(idx) {

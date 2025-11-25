@@ -1,5 +1,5 @@
 mod parsers;
-mod parseutils;
+pub mod parseutils;
 mod timeutils;
 
 use chrono::{DateTime, Local};
@@ -119,7 +119,7 @@ fn create_styled_span(token: &TokenType, text: &str) -> Span<'static> {
             let color = match p {
                 TaskPriority::High => Color::Red,
                 TaskPriority::Medium => Color::Yellow,
-                TaskPriority::Low => Color::Green,
+                TaskPriority::Low => Color::Blue,
                 TaskPriority::None => Color::Gray,
             };
             Span::styled(text.to_string(), Style::default().fg(color))

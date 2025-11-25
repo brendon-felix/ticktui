@@ -19,6 +19,25 @@ impl DueDateParser {
         let now = Local::now();
         let today = now.date_naive();
 
+        // Try time-first patterns (e.g., "3pm today", "4pm tomorrow")
+        if let Some(time) = timeutils::parse_time(words[0]) {
+            if words.len() > 1 {
+                match parseutils::normalize_str(words[1]).as_str() {
+                    "today" => {
+                        let dt = parseutils::create_date_with_time(today, Some(time));
+                        return Some((TokenType::DueDate(dt), 2));
+                    }
+                    "tomorrow" => {
+                        let tomorrow = today + chrono::Duration::days(1);
+                        let dt = parseutils::create_date_with_time(tomorrow, Some(time));
+                        return Some((TokenType::DueDate(dt), 2));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Try date-first patterns (e.g., "today", "today 3pm")
         match parseutils::normalize_str(words[0]).as_str() {
             "today" => {
                 let time = if words.len() > 1 {
@@ -44,6 +63,26 @@ impl DueDateParser {
     }
 
     fn parse_next_weekday(&self, words: &[&str]) -> Option<(TokenType, usize)> {
+        if words.len() < 2 {
+            return None;
+        }
+
+        // Try time-first pattern (e.g., "3pm next friday")
+        if let Some(time) = timeutils::parse_time(words[0]) {
+            if words.len() > 2 && parseutils::normalize_str(words[1]) == "next" {
+                if let Some(weekday) = parseutils::parse_chrono_weekday(words[2]) {
+                    let base_dt = parseutils::next_weekday(weekday);
+                    let dt = base_dt
+                        .date_naive()
+                        .and_time(time)
+                        .and_local_timezone(Local)
+                        .unwrap();
+                    return Some((TokenType::DueDate(dt), 3));
+                }
+            }
+        }
+
+        // Try date-first pattern (e.g., "next friday")
         try_parse_pattern(words, 2, |words| {
             if parseutils::normalize_str(words[0]) == "next" {
                 parseutils::parse_chrono_weekday(words[1])
@@ -55,6 +94,26 @@ impl DueDateParser {
     }
 
     fn parse_standalone_weekday(&self, words: &[&str]) -> Option<(TokenType, usize)> {
+        if words.is_empty() {
+            return None;
+        }
+
+        // Try time-first pattern (e.g., "3pm friday")
+        if let Some(time) = timeutils::parse_time(words[0]) {
+            if words.len() > 1 {
+                if let Some(weekday) = parseutils::parse_chrono_weekday(words[1]) {
+                    let base_dt = parseutils::next_weekday_within_week(weekday);
+                    let dt = base_dt
+                        .date_naive()
+                        .and_time(time)
+                        .and_local_timezone(Local)
+                        .unwrap();
+                    return Some((TokenType::DueDate(dt), 2));
+                }
+            }
+        }
+
+        // Try date-first pattern (e.g., "friday", "friday 3pm")
         if let Some(weekday) = parseutils::parse_chrono_weekday(words[0]) {
             let time = if words.len() > 1 {
                 timeutils::parse_time(words[1])
@@ -86,21 +145,93 @@ impl DueDateParser {
     }
 
     fn parse_month_day(&self, words: &[&str]) -> Option<(TokenType, usize)> {
-        try_parse_pattern(words, 2, |words| {
-            if let (Some(month), Some(day)) = (
-                parseutils::parse_month_name(words[0]),
-                parseutils::parse_day_number(words[1]),
-            ) {
-                let year = Local::now().year();
-                NaiveDate::from_ymd_opt(year, month, day)
-                    .map(|date| TokenType::DueDate(parseutils::create_date_with_time(date, None)))
+        if words.len() < 2 {
+            return None;
+        }
+
+        // Try time-first pattern (e.g., "3pm dec 3")
+        if let Some(time) = timeutils::parse_time(words[0]) {
+            if words.len() > 2 {
+                if let (Some(month), Some(day)) = (
+                    parseutils::parse_month_name(words[1]),
+                    parseutils::parse_day_number(words[2]),
+                ) {
+                    let year = Local::now().year();
+                    if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
+                        let dt = parseutils::create_date_with_time(date, Some(time));
+                        return Some((TokenType::DueDate(dt), 3));
+                    }
+                }
+            }
+        }
+
+        // Try date-first pattern (e.g., "dec 3", "dec 3 3pm")
+        if let (Some(month), Some(day)) = (
+            parseutils::parse_month_name(words[0]),
+            parseutils::parse_day_number(words[1]),
+        ) {
+            let year = Local::now().year();
+            if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
+                // Check if there's a time component in the third word
+                let time = if words.len() > 2 {
+                    timeutils::parse_time(words[2])
+                } else {
+                    None
+                };
+                let dt = parseutils::create_date_with_time(date, time);
+                let consumed = if time.is_some() { 3 } else { 2 };
+                Some((TokenType::DueDate(dt), consumed))
             } else {
                 None
             }
-        })
+        } else {
+            None
+        }
     }
 
     fn parse_slash_date(&self, words: &[&str]) -> Option<(TokenType, usize)> {
+        if words.is_empty() {
+            return None;
+        }
+
+        // Try time-first pattern (e.g., "3pm 12/31")
+        if let Some(time) = timeutils::parse_time(words[0]) {
+            if words.len() > 1 && words[1].contains('/') {
+                let parts: Vec<&str> = words[1].split('/').collect();
+                let today = Local::now().date_naive();
+
+                match parts.len() {
+                    3 => {
+                        // Format: MM/DD/YYYY
+                        if let (Ok(month), Ok(day), Ok(year)) = (
+                            parts[0].parse::<u32>(),
+                            parts[1].parse::<u32>(),
+                            parts[2].parse::<i32>(),
+                        ) {
+                            if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
+                                let dt = parseutils::create_date_with_time(date, Some(time));
+                                return Some((TokenType::DueDate(dt), 2));
+                            }
+                        }
+                    }
+                    2 => {
+                        // Format: MM/DD (current year)
+                        if let (Ok(month), Ok(day)) =
+                            (parts[0].parse::<u32>(), parts[1].parse::<u32>())
+                        {
+                            let year = today.year();
+                            if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
+                                let dt = parseutils::create_date_with_time(date, Some(time));
+                                return Some((TokenType::DueDate(dt), 2));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Try date-first pattern (e.g., "12/31", "12/31/2024")
         if !words[0].contains('/') {
             return None;
         }

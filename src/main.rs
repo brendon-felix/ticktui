@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod debug;
 mod taskparser;
 mod tasks;
 mod term;

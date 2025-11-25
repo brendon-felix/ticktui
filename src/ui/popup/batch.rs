@@ -3,7 +3,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Layout, Margin, Rect},
     style::{Style, Stylize},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
@@ -49,7 +49,8 @@ impl BatchCreatePopup {
             editor,
             view,
             block_left: Block::new()
-                .title("Batch Create Tasks")
+                .title(" Create Tasks ")
+                .title_alignment(Alignment::Center)
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
             block_right: Block::new()
@@ -139,14 +140,15 @@ impl Popup for BatchCreatePopup {
     }
 
     fn draw(&mut self, f: &mut Frame, area: Rect, _last_frame: Instant) {
-        let popup_area = utils::centered_area_with_offset(area, 5, 75, 3);
+        // let popup_area = utils::centered_area_with_offset(area, 3, 70, 4);
+        let popup_area = utils::centered_area(area, 3, 70);
         f.render_widget(Clear, popup_area);
 
         let split = Layout::horizontal([Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(popup_area);
 
-        let inner_area_left = self.block_left.inner(split[0]).inner(Margin::new(2, 1));
-        let inner_area_right = self.block_right.inner(split[1]).inner(Margin::new(2, 1));
+        let inner_area_left = self.block_left.inner(split[0]).inner(Margin::new(1, 0));
+        let inner_area_right = self.block_right.inner(split[1]).inner(Margin::new(1, 0));
         f.render_widget(&self.block_left, split[0]);
         f.render_widget(&self.block_right, split[1]);
 

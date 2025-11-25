@@ -4,7 +4,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Paragraph},
 };
 use std::{sync::Arc, time::Instant};
@@ -18,6 +18,7 @@ use crate::{
     ui::{
         UIAction,
         multiselect::{MultiSelectList, MultiSelectListItem, MultiSelectListState},
+        normalmode::NormalModeAction,
         utils,
         viewselector::View,
     },
@@ -112,6 +113,7 @@ impl TaskList {
 
     pub fn clear_selection(&mut self) {
         self.list_state.select(None);
+        self.list_state.end_visual_selection();
     }
 
     // pub fn insert_new_task(&mut self) {
@@ -217,7 +219,9 @@ impl TaskList {
                 .task_id(task.get_id().clone())
                 .project_id(task.project_id.clone());
             let task_action = AppAction::TaskAction(TaskAction::Delete, data);
-            let confirm_action = AppAction::UIAction(UIAction::Confirm(Box::new(task_action)));
+            let msg =
+                Text::from(Line::from("Are you sure you want to delete this task?")).centered();
+            let confirm_action = AppAction::UIAction(UIAction::Confirm(msg, Box::new(task_action)));
             let _ = self.tx.send(confirm_action);
             if self.shown_tasks.is_empty() {
                 self.list_state.select(None);
@@ -255,13 +259,25 @@ impl TaskList {
                         }
                     })
                 });
-                let confirmation_action = AppAction::UIAction(UIAction::Confirm(Box::new(
-                    AppAction::MultiAction(task_actions.collect()),
-                )));
+                let confirmation_action = AppAction::UIAction(UIAction::Confirm(
+                    Text::from(Line::from(vec![
+                        Span::from("Are you sure you want to delete "),
+                        Span::from(format!("{} ", e - s + 1))
+                            .style(Style::default().fg(Color::Yellow)),
+                        Span::from("tasks?"),
+                    ])),
+                    Box::new(AppAction::MultiAction(
+                        task_actions
+                            .chain(vec![AppAction::UIAction(UIAction::NormalMode(
+                                NormalModeAction::ClearSelection,
+                            ))])
+                            .collect(),
+                    )),
+                ));
                 let _ = self.tx.send(confirmation_action);
                 // self.list_state.select_next();
-                self.list_state.select(Some(s));
-                self.list_state.end_visual_selection();
+                // self.list_state.select(Some(s));
+                // self.list_state.end_visual_selection();
             } else {
                 self.remove_task(self.shown_tasks[curr].clone());
                 self.list_state.select(Some(curr));
@@ -281,6 +297,37 @@ impl TaskList {
                 })
             })
         })
+    }
+
+    pub fn get_selected_tasks(&self) -> Vec<Arc<Task>> {
+        if let Some(curr) = self.list_state.selected() {
+            if let Some(start) = self.list_state.visual_start {
+                // Visual selection mode - return range of tasks
+                let (s, e) = if curr >= start {
+                    (start, curr)
+                } else {
+                    (curr, start)
+                };
+                let mut selected_tasks = Vec::new();
+                for i in s..=e {
+                    if let Some(task_id) = self.shown_tasks.get(i) {
+                        if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
+                            selected_tasks.push(Arc::clone(task));
+                        }
+                    }
+                }
+                selected_tasks
+            } else {
+                // Single selection mode - return just the current task
+                if let Some(task) = self.get_current_task() {
+                    vec![task]
+                } else {
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
+        }
     }
 
     pub fn handle_key_event(&mut self, key: KeyEvent) {

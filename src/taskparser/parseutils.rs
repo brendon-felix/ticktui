@@ -1,5 +1,5 @@
 use crate::tasks::RepeatDay;
-use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveTime};
+use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveTime, Timelike};
 
 /// Normalize string for case-insensitive matching
 pub fn normalize_str(s: &str) -> String {
@@ -102,6 +102,93 @@ pub fn next_weekday_within_week(weekday: chrono::Weekday) -> DateTime<Local> {
         .unwrap()
         .and_local_timezone(Local)
         .unwrap()
+}
+
+/// Convert RepeatDay to chrono::Weekday
+pub fn repeat_day_to_weekday(day: &RepeatDay) -> chrono::Weekday {
+    match day {
+        RepeatDay::Monday => chrono::Weekday::Mon,
+        RepeatDay::Tuesday => chrono::Weekday::Tue,
+        RepeatDay::Wednesday => chrono::Weekday::Wed,
+        RepeatDay::Thursday => chrono::Weekday::Thu,
+        RepeatDay::Friday => chrono::Weekday::Fri,
+        RepeatDay::Saturday => chrono::Weekday::Sat,
+        RepeatDay::Sunday => chrono::Weekday::Sun,
+    }
+}
+
+/// Calculate the next occurrence for a repeat pattern that specifies days
+pub fn calculate_first_occurrence_from_repeat(
+    repeat_flag: &crate::tasks::RepeatFlag,
+) -> Option<DateTime<Local>> {
+    match repeat_flag.freq() {
+        crate::tasks::RepeatFreq::Weekly => {
+            if let Some(days) = repeat_flag.days() {
+                if !days.is_empty() {
+                    // For weekly repeats with specific days, find the next occurrence of the first specified day
+                    let weekday = repeat_day_to_weekday(&days[0]);
+                    Some(next_weekday_within_week(weekday))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        crate::tasks::RepeatFreq::Weekdays => {
+            // For weekdays, find the next weekday
+            let now = Local::now();
+            let current_weekday = now.weekday();
+
+            // Find the next weekday (Mon-Fri)
+            let weekdays = [
+                chrono::Weekday::Mon,
+                chrono::Weekday::Tue,
+                chrono::Weekday::Wed,
+                chrono::Weekday::Thu,
+                chrono::Weekday::Fri,
+            ];
+
+            // Find the next weekday after today
+            for &weekday in &weekdays {
+                let days_until = ((weekday.num_days_from_monday() as i64
+                    - current_weekday.num_days_from_monday() as i64
+                    + 7)
+                    % 7) as i64;
+
+                if days_until > 0 || (days_until == 0 && now.hour() < 9) {
+                    return Some(
+                        (now + chrono::Duration::days(if days_until == 0 {
+                            0
+                        } else {
+                            days_until
+                        }))
+                        .date_naive()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap()
+                        .and_local_timezone(Local)
+                        .unwrap(),
+                    );
+                }
+            }
+
+            // If we're past all weekdays this week, go to next Monday
+            Some(next_weekday(chrono::Weekday::Mon))
+        }
+        crate::tasks::RepeatFreq::Daily => {
+            // For daily, just use tomorrow
+            let now = Local::now();
+            Some(
+                (now + chrono::Duration::days(1))
+                    .date_naive()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+                    .and_local_timezone(Local)
+                    .unwrap(),
+            )
+        }
+        _ => None, // Monthly and yearly need more context
+    }
 }
 
 /// Create a date with time from components

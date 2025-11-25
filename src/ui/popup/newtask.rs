@@ -3,7 +3,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
-    layout::{Margin, Rect},
+    layout::{Alignment, Margin, Rect},
     text::Line,
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
 };
@@ -45,7 +45,8 @@ impl NewTaskPopup {
             editor,
             view,
             block: Block::new()
-                .title("New Task")
+                .title(" New Task ")
+                .title_alignment(Alignment::Center)
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded),
             tx,
@@ -102,10 +103,11 @@ impl Popup for NewTaskPopup {
     }
 
     fn draw(&mut self, f: &mut Frame, area: Rect, _last_frame: Instant) {
-        let popup_area = utils::centered_area_with_offset(area, 5, 60, 3);
+        // let popup_area = utils::centered_area_with_offset(area, 3, 60, 4);
+        let popup_area = utils::centered_area(area, 3, 60);
         f.render_widget(Clear, popup_area);
 
-        let inner_area = self.block.inner(popup_area).inner(Margin::new(2, 1));
+        let inner_area = self.block.inner(popup_area).inner(Margin::new(1, 0));
         f.render_widget(&self.block, popup_area);
         self.editor.update_style();
         f.render_widget(&self.editor, inner_area);
@@ -128,6 +130,7 @@ fn parse(content: &str, view: View) -> TaskData {
     let mut title_parts = Vec::new();
     let mut user_specified_date = false;
     let mut user_specified_project = false;
+    let mut repeat_flag_parsed: Option<crate::tasks::RepeatFlag> = None;
 
     for (token, _text) in tokens {
         match token {
@@ -156,6 +159,8 @@ fn parse(content: &str, view: View) -> TaskData {
                 user_specified_project = true;
             }
             TokenType::Repeat(repeat_flag) => {
+                // Store repeat flag for potential date inference
+                repeat_flag_parsed = Some(repeat_flag.clone());
                 // Use the build method to create the repeat flag string
                 data.repeat_flag = Some(repeat_flag.build());
             }
@@ -165,71 +170,95 @@ fn parse(content: &str, view: View) -> TaskData {
         }
     }
 
-    // Apply view-based defaults if user didn't specify them
-    if !user_specified_date {
-        let now = Local::now();
-        let default_date = match view {
-            View::Today => {
-                // Default to today at midnight (all-day)
-                let today = now.date_naive();
-                Some(
-                    today
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap()
-                        .with_timezone(&chrono::Utc),
-                )
-            }
-            View::Tomorrow => {
-                // Default to tomorrow at midnight (all-day)
-                let tomorrow = (now + chrono::Duration::days(1)).date_naive();
-                Some(
-                    tomorrow
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap()
-                        .with_timezone(&chrono::Utc),
-                )
-            }
-            View::Week => {
-                // Default to today at midnight (all-day)
-                let today = now.date_naive();
-                Some(
-                    today
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap()
-                        .with_timezone(&chrono::Utc),
-                )
-            }
-            View::Inbox | View::All => None,
-        };
-        data.due_date = default_date;
+    // Apply date inference logic
+    let now = Local::now();
+
+    // Check if we have a repeat pattern and can infer a date from it
+    let inferred_repeat_date = if let Some(ref repeat_flag) = repeat_flag_parsed {
+        crate::taskparser::parseutils::calculate_first_occurrence_from_repeat(repeat_flag)
     } else {
-        // User specified a time-only (e.g., "3pm"), apply view-based date context
-        if let Some(due_date) = data.due_date {
+        None
+    };
+
+    if !user_specified_date {
+        // No explicit date was specified
+        if let Some(inferred_date) = inferred_repeat_date {
+            // Use the date inferred from repeat pattern
+            data.due_date = Some(inferred_date.with_timezone(&chrono::Utc));
+        } else {
+            // Apply view-based defaults
+            let default_date = match view {
+                View::Today => {
+                    let today = now.date_naive();
+                    Some(
+                        today
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap()
+                            .and_local_timezone(Local)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                    )
+                }
+                View::Tomorrow => {
+                    let tomorrow = (now + chrono::Duration::days(1)).date_naive();
+                    Some(
+                        tomorrow
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap()
+                            .and_local_timezone(Local)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                    )
+                }
+                View::Week => {
+                    let today = now.date_naive();
+                    Some(
+                        today
+                            .and_hms_opt(0, 0, 0)
+                            .unwrap()
+                            .and_local_timezone(Local)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                    )
+                }
+                View::Inbox | View::All => None,
+            };
+            data.due_date = default_date;
+        }
+    } else {
+        // User specified a date/time, but check if it's time-only with a repeat pattern
+        if let (Some(due_date), Some(inferred_date)) = (data.due_date, inferred_repeat_date) {
             let due_date_local = due_date.with_timezone(&Local);
-            let now = Local::now();
 
-            // Check if the parsed date is "today" (same date as now)
-            // This happens when user specifies just a time like "3pm"
-            if due_date_local.date_naive() == now.date_naive() {
+            // If the parsed date is "today" and we have a repeat pattern,
+            // it's likely a time-only input (e.g., "every wed 3pm")
+            if due_date_local.date_naive() == now.date_naive() && repeat_flag_parsed.is_some() {
                 let time = due_date_local.time();
-                let base_date = match view {
-                    View::Tomorrow => (now + chrono::Duration::days(1)).date_naive(),
-                    _ => now.date_naive(),
-                };
-
                 data.due_date = Some(
-                    base_date
+                    inferred_date
+                        .date_naive()
                         .and_time(time)
                         .and_local_timezone(Local)
                         .unwrap()
                         .with_timezone(&chrono::Utc),
                 );
+            } else {
+                // Check if it's a time-only parse for view-based context
+                if due_date_local.date_naive() == now.date_naive() {
+                    let time = due_date_local.time();
+                    let base_date = match view {
+                        View::Tomorrow => (now + chrono::Duration::days(1)).date_naive(),
+                        _ => now.date_naive(),
+                    };
+
+                    data.due_date = Some(
+                        base_date
+                            .and_time(time)
+                            .and_local_timezone(Local)
+                            .unwrap()
+                            .with_timezone(&chrono::Utc),
+                    );
+                }
             }
         }
     }

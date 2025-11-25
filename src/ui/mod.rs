@@ -1,5 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
-use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    text::Text,
+    widgets::{Paragraph, Wrap},
+};
 
 mod animate;
 // mod batchmode;
@@ -29,7 +34,7 @@ use crate::{
         normalmode::NormalModeAction,
         popup::{
             Popup, batch::BatchCreatePopup, confirm::ConfirmationPopup, debug::DebugPopup,
-            newtask::NewTaskPopup,
+            newtask::NewTaskPopup, reschedule::ReschedulePopup,
         },
         viewselector::View,
     },
@@ -42,9 +47,10 @@ pub enum UIAction {
     ExitToNormalMode,
     NormalMode(NormalModeAction),
     FocusMode(FocusModeAction),
-    Confirm(Box<AppAction>),
+    Confirm(Text<'static>, Box<AppAction>),
     NewTask,
     BatchCreateTask,
+    RescheduleTask(String),
     ClosePopup,
     DebugMsg(String, u16),
 }
@@ -97,14 +103,17 @@ impl AppUI {
             UIAction::FocusMode(focus_action) => {
                 self.focus_ui.execute_action(focus_action);
             }
-            UIAction::Confirm(pending_action) => {
-                self.confirm(*pending_action);
+            UIAction::Confirm(msg, pending_action) => {
+                self.confirm(msg, *pending_action);
             }
             UIAction::NewTask => {
                 self.new_task();
             }
             UIAction::BatchCreateTask => {
                 self.batch_create_task();
+            }
+            UIAction::RescheduleTask(duration_str) => {
+                self.reschedule_task(duration_str);
             }
             UIAction::ClosePopup => {
                 self.close_popup();
@@ -139,13 +148,50 @@ impl AppUI {
         ));
     }
 
-    pub fn confirm(&mut self, pending_action: AppAction) {
+    pub fn confirm(&mut self, msg: Text<'static>, pending_action: AppAction) {
         let popup = ConfirmationPopup::new(
-            Paragraph::new(Text::from("Are you sure?")).centered(),
+            Paragraph::new(msg).centered().wrap(Wrap::default()),
             pending_action,
             self.tx.clone(),
         );
         self.popup = Some(Box::new(popup));
+    }
+
+    pub fn reschedule_popup(&mut self) {
+        let popup = ReschedulePopup::new(self.tx.clone());
+        self.popup = Some(Box::new(popup));
+    }
+
+    pub fn reschedule_task(&mut self, duration_str: String) {
+        // Get selected tasks from current mode
+        let selected_tasks = match self.mode {
+            AppUIMode::Normal => self.normal_ui.get_selected_tasks(),
+            AppUIMode::Focus => {
+                // Focus mode doesn't support multi-select, just get current task
+                if let Some(current_task) = self.focus_ui.get_current_task() {
+                    vec![current_task]
+                } else {
+                    vec![]
+                }
+            }
+        };
+
+        if !selected_tasks.is_empty() {
+            // Create task data for all selected tasks with the same duration string
+            let task_data_list: Vec<crate::tasks::TaskData> = selected_tasks
+                .into_iter()
+                .map(|task| {
+                    let mut task_data = crate::tasks::TaskData::from_task(&task);
+                    task_data.reschedule_duration = Some(duration_str.clone());
+                    task_data
+                })
+                .collect();
+
+            // Use the new RescheduleMultipleTasks action to handle relative timing
+            let _ = self
+                .tx
+                .send(AppAction::RescheduleMultipleTasks(task_data_list));
+        }
     }
 
     pub fn new_task(&mut self) {
@@ -215,11 +261,14 @@ impl AppUI {
             KeyCode::Char('b') if self.allow_key_cmd() => {
                 let _ = tx.send(AppAction::UIAction(UIAction::BatchCreateTask));
             }
+            KeyCode::Char('r') if self.allow_key_cmd() => {
+                self.reschedule_popup();
+            }
             _ => {
-                if let Some(debug_popup) = &mut self.debug_popup {
-                    debug_popup.handle_key_event(key_event);
-                    return;
-                }
+                // if let Some(debug_popup) = &mut self.debug_popup {
+                //     debug_popup.handle_key_event(key_event);
+                //     return;
+                // }
                 if let Some(popup) = &mut self.popup {
                     popup.handle_key_event(key_event);
                     return;
@@ -264,9 +313,9 @@ impl AppUI {
     }
 }
 
-pub fn debug_msg(msg: &str, n_ticks: u16, tx: &UnboundedSender<AppAction>) {
-    let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(
-        msg.to_string(),
-        n_ticks,
-    )));
-}
+// pub fn debug_msg(msg: &str, n_ticks: u16, tx: &UnboundedSender<AppAction>) {
+//     let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(
+//         msg.to_string(),
+//         n_ticks,
+//     )));
+// }

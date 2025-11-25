@@ -10,10 +10,12 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
+    debug,
     ui::{
         UIAction,
         animate::start_sweep,
-        debug_msg,
+        // debug_msg,
+        // popup::debug,
         taskeditor::TaskEditor,
         tasklist::TaskList,
         utils::{centered_area, paint_background},
@@ -27,6 +29,7 @@ pub enum NormalModeAction {
     CreateNewTask,
     ExitTaskEditor,
     SwitchView(View),
+    ClearSelection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +75,8 @@ impl NormalModeUI {
                 self.view_selector.deactivate();
                 self.task_list.deactivate();
                 self.task_editor.activate();
-                debug_msg(&format!("repeat: {:?}", task.repeat_flag), 40, tx);
+                // debug_msg(&format!("repeat: {:?}", task.repeat_flag), 40, tx);
+                debug::debug_msg(&format!("repeat: {:?}", task.repeat_flag), Some(40));
             }
             NormalModeAction::CreateNewTask => {
                 // self.task_editor.clear_all_fields();
@@ -108,6 +112,9 @@ impl NormalModeUI {
                 self.task_list.filter_by_view(&view);
                 self.task_list.start_animation();
             }
+            NormalModeAction::ClearSelection => {
+                self.task_list.clear_selection();
+            }
         }
     }
 
@@ -127,6 +134,10 @@ impl NormalModeUI {
         self.apply_current_view_filter();
         self.task_list.tasks_loaded = true;
         // self.update_task_editor_if_needed();
+    }
+
+    pub fn get_selected_tasks(&self) -> Vec<Arc<Task>> {
+        self.task_list.get_selected_tasks()
     }
 
     pub fn allow_key_cmd(&self) -> bool {

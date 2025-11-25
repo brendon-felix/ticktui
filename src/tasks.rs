@@ -19,6 +19,7 @@ pub struct TaskData {
     // subtasks: Vec<Subtask>, // not supported yet
     pub priority: Option<TaskPriority>,
     pub repeat_flag: Option<String>,
+    pub reschedule_duration: Option<String>,
     // reminders: Option<Vec<String>>, // not supported yet
     // sort_order, Option<i64>, // not supported
     // start_date: Option<DateTime<Utc>>, // not supported yet
@@ -42,6 +43,7 @@ impl TaskData {
             } else {
                 Some(task.repeat_flag.clone())
             },
+            reschedule_duration: None,
         }
     }
 
@@ -106,6 +108,7 @@ pub enum TaskAction {
     Edit,
     Complete,
     Delete,
+    Reschedule,
 }
 
 pub async fn fetch_all_tasks(client: &TickTick) -> Result<Vec<Task>> {
@@ -260,15 +263,14 @@ pub async fn edit_task(client: &TickTick, data: TaskData) -> Result<(), String> 
 
 pub async fn complete_task(client: &TickTick, data: TaskData) -> Result<(), String> {
     // Get a fresh task instance from the API with proper client context
-    let project_id = data.project_id.unwrap();
-    let task_id = data.task_id.unwrap();
+    let project_id = data.project_id.clone().unwrap();
+    let task_id = data.task_id.clone().unwrap();
     match client.get_project_data(&project_id).await {
         Ok(project_data) => {
             // Find the task in the project data
-            let task_id_str = format!("{:?}", task_id);
             if let Some(mut task) = project_data.tasks.into_iter().find(|t| {
-                let t_id_str = format!("{:?}", t.get_id());
-                t_id_str == task_id_str
+                let t_id = t.get_id();
+                t_id == &task_id
             }) {
                 match task.complete().await {
                     Ok(_) => Ok(()),
@@ -284,15 +286,14 @@ pub async fn complete_task(client: &TickTick, data: TaskData) -> Result<(), Stri
 
 pub async fn delete_task(client: &TickTick, data: TaskData) -> Result<(), String> {
     // Get a fresh task instance from the API with proper client context
-    let project_id = data.project_id.unwrap();
-    let task_id = data.task_id.unwrap();
+    let project_id = data.project_id.clone().unwrap();
+    let task_id = data.task_id.clone().unwrap();
     match client.get_project_data(&project_id).await {
         Ok(project_data) => {
             // Find the task in the project data
-            let task_id_str = format!("{:?}", task_id);
             if let Some(task) = project_data.tasks.into_iter().find(|t| {
-                let t_id_str = format!("{:?}", t.get_id());
-                t_id_str == task_id_str
+                let t_id = t.get_id();
+                t_id == &task_id
             }) {
                 match task.delete().await {
                     Ok(_) => Ok(()),
@@ -303,6 +304,145 @@ pub async fn delete_task(client: &TickTick, data: TaskData) -> Result<(), String
             }
         }
         Err(e) => Err(format!("Failed to get project data: {:?}", e)),
+    }
+}
+
+pub async fn reschedule_task(client: &TickTick, data: TaskData) -> Result<(), String> {
+    // This function handles a single task, but the real reschedule logic
+    // with relative timing is in reschedule_tasks (plural)
+    reschedule_tasks(client, vec![data]).await
+}
+
+pub async fn reschedule_tasks(
+    client: &TickTick,
+    task_data_list: Vec<TaskData>,
+) -> Result<(), String> {
+    use crate::ui::popup::reschedule::{RescheduleTarget, parse_duration};
+    use std::collections::HashMap;
+
+    if task_data_list.is_empty() {
+        return Err("No tasks to reschedule".to_string());
+    }
+
+    // Get the reschedule duration string from the first task (they should all be the same)
+    let duration_str = task_data_list[0]
+        .reschedule_duration
+        .as_ref()
+        .ok_or("No reschedule duration provided")?;
+
+    // Parse the duration
+    let reschedule_target = parse_duration(duration_str)
+        .map_err(|e| format!("Failed to parse duration '{}': {}", duration_str, e))?;
+
+    // Fetch all tasks and group by project to minimize API calls
+    let mut tasks_by_project: HashMap<ProjectID, Vec<Task>> = HashMap::new();
+    let mut errors = Vec::new();
+
+    // First, fetch all tasks to get their current due dates
+    for task_data in &task_data_list {
+        let project_id = task_data.project_id.clone().unwrap();
+
+        if !tasks_by_project.contains_key(&project_id) {
+            match client.get_project_data(&project_id).await {
+                Ok(project_data) => {
+                    tasks_by_project.insert(project_id.clone(), project_data.tasks);
+                }
+                Err(e) => {
+                    errors.push(format!(
+                        "Failed to get project data for {}: {:?}",
+                        project_id.0, e
+                    ));
+                    continue;
+                }
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(format!(
+            "Failed to fetch some projects: {}",
+            errors.join(", ")
+        ));
+    }
+
+    // Find all tasks with their due dates
+    let mut tasks_with_data = Vec::new();
+    for task_data in task_data_list {
+        let project_id = task_data.project_id.clone().unwrap();
+        let task_id = task_data.task_id.clone().unwrap();
+
+        if let Some(project_tasks) = tasks_by_project.get_mut(&project_id) {
+            if let Some(task_idx) = project_tasks.iter().position(|t| t.get_id() == &task_id) {
+                let task = project_tasks.remove(task_idx);
+                tasks_with_data.push(task);
+            } else {
+                errors.push(format!(
+                    "Task {} not found in project {}",
+                    task_id.0, project_id.0
+                ));
+            }
+        }
+    }
+
+    if tasks_with_data.is_empty() {
+        return Err("No valid tasks found to reschedule".to_string());
+    }
+
+    // Calculate the base time for absolute targets
+    let base_datetime_utc = match &reschedule_target {
+        RescheduleTarget::RelativeToDueDate(_) => {
+            // For relative targets, we don't need a base time
+            None
+        }
+        RescheduleTarget::AbsoluteTime(datetime) => {
+            // For absolute targets, find the earliest task's due date
+            if let Some(earliest_task) = tasks_with_data.iter().min_by_key(|task| task.due_date) {
+                Some((datetime.with_timezone(&chrono::Utc), earliest_task.due_date))
+            } else {
+                None
+            }
+        }
+    };
+
+    // Reschedule all selected tasks
+    for mut task in tasks_with_data {
+        // Calculate the new due datetime based on the reschedule target
+        let new_datetime_utc = match (&reschedule_target, &base_datetime_utc) {
+            (RescheduleTarget::RelativeToDueDate(duration), _) => {
+                // Add duration to the task's original due_date
+                task.due_date + *duration
+            }
+            (RescheduleTarget::AbsoluteTime(_), Some((target_time, earliest_due_date))) => {
+                // Calculate the offset from the earliest task and apply it to the target time
+                let offset_from_earliest = task.due_date - *earliest_due_date;
+                *target_time + offset_from_earliest
+            }
+            (RescheduleTarget::AbsoluteTime(datetime), None) => {
+                // Fallback: use the absolute datetime (shouldn't happen with proper logic)
+                datetime.with_timezone(&chrono::Utc)
+            }
+        };
+
+        // Update the task's due date
+        task.due_date = new_datetime_utc;
+
+        match task.publish_changes().await {
+            Ok(_) => {}
+            Err(e) => {
+                errors.push(format!("Failed to reschedule task {}: {:?}", task.title, e));
+            }
+        }
+    }
+
+    // Return error if any tasks failed
+    if !errors.is_empty() {
+        Err(format!(
+            "Failed to reschedule {} task(s): {}",
+            errors.len(),
+            errors.join(", ")
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -423,6 +563,18 @@ impl RepeatFlag {
         }
     }
 
+    pub fn freq(&self) -> &RepeatFreq {
+        &self.freq
+    }
+
+    pub fn interval(&self) -> u32 {
+        self.interval
+    }
+
+    pub fn days(&self) -> &Option<Vec<RepeatDay>> {
+        &self.days
+    }
+
     /// Parse an RRULE string into a RepeatFlag
     /// Example: "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,FR"
     pub fn from_string(rrule: &str) -> Option<Self> {
@@ -506,7 +658,7 @@ impl RepeatFlag {
             (RepeatFreq::Daily, n, _) => format!(" every {} days", n),
 
             // Weekly patterns
-            (RepeatFreq::Weekly, 1, None) => " weekly".to_string(),
+            (RepeatFreq::Weekly, 1, None) => " weekly".to_string(),
             (RepeatFreq::Weekly, 1, Some(days)) if days.len() == 1 => {
                 format!(
                     " every {}",
