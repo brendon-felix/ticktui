@@ -67,7 +67,7 @@ impl NormalModeUI {
         }
     }
 
-    pub fn execute_action(&mut self, action: NormalModeAction, tx: &UnboundedSender<AppAction>) {
+    pub fn execute_action(&mut self, action: NormalModeAction, _tx: &UnboundedSender<AppAction>) {
         match action {
             NormalModeAction::EditTask(task) => {
                 self.task_editor.load_task(&task);
@@ -76,7 +76,7 @@ impl NormalModeUI {
                 self.task_list.deactivate();
                 self.task_editor.activate();
                 // debug_msg(&format!("repeat: {:?}", task.repeat_flag), 40, tx);
-                debug::debug_msg(&format!("repeat: {:?}", task.repeat_flag), Some(40));
+                debug!("repeat: {:?}", task.repeat_flag; 40);
             }
             NormalModeAction::CreateNewTask => {
                 // self.task_editor.clear_all_fields();

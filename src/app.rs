@@ -107,7 +107,7 @@ impl App {
                 Err(e) => {
                     // let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(e.to_string())));
                     // debug_msg(&e.to_string(), 20, &tx);
-                    debug::debug_msg(&e.to_string(), Some(20));
+                    debug!("{}", &e.to_string());
                 }
             }
         });

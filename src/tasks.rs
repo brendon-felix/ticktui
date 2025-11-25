@@ -567,9 +567,9 @@ impl RepeatFlag {
         &self.freq
     }
 
-    pub fn interval(&self) -> u32 {
-        self.interval
-    }
+    // pub fn interval(&self) -> u32 {
+    //     self.interval
+    // }
 
     pub fn days(&self) -> &Option<Vec<RepeatDay>> {
         &self.days
