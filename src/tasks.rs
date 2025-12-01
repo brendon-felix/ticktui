@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, NaiveTime, Utc, Weekday};
 use ticks::{
     TickTick,
     projects::ProjectID,
@@ -201,6 +201,7 @@ pub async fn create_task(client: &TickTick, data: TaskData) -> Result<(), String
 
     if let Some(due_date) = data.due_date {
         builder = builder.due_date(due_date);
+        builder = builder.start_date(due_date);
         // if time is 12:00 AM, set as all-day
         let time = due_date.with_timezone(&chrono::Local).time();
         if time == NaiveTime::from_hms_opt(0, 0, 0).unwrap() {
@@ -244,6 +245,7 @@ pub async fn edit_task(client: &TickTick, data: TaskData) -> Result<(), String> 
                 }
                 if let Some(due_date) = patched_data.due_date {
                     task.due_date = due_date;
+                    task.start_date = due_date;
                 }
                 if let Some(priority) = patched_data.priority {
                     task.priority = priority;
@@ -423,8 +425,8 @@ pub async fn reschedule_tasks(
             }
         };
 
-        // Update the task's due date
         task.due_date = new_datetime_utc;
+        task.start_date = new_datetime_utc;
 
         match task.publish_changes().await {
             Ok(_) => {}
@@ -538,24 +540,13 @@ pub enum RepeatFreq {
 }
 
 #[derive(Debug, Clone)]
-pub enum RepeatDay {
-    Monday,
-    Tuesday,
-    Wednesday,
-    Thursday,
-    Friday,
-    Saturday,
-    Sunday,
-}
-
-#[derive(Debug, Clone)]
 pub struct RepeatFlag {
     freq: RepeatFreq,
     interval: u32,
-    days: Option<Vec<RepeatDay>>,
+    days: Option<Vec<Weekday>>,
 }
 impl RepeatFlag {
-    pub fn new(freq: RepeatFreq, interval: u32, days: Option<Vec<RepeatDay>>) -> Self {
+    pub fn new(freq: RepeatFreq, interval: u32, days: Option<Vec<Weekday>>) -> Self {
         Self {
             freq,
             interval,
@@ -571,7 +562,7 @@ impl RepeatFlag {
     //     self.interval
     // }
 
-    pub fn days(&self) -> &Option<Vec<RepeatDay>> {
+    pub fn days(&self) -> &Option<Vec<Weekday>> {
         &self.days
     }
 
@@ -606,16 +597,16 @@ impl RepeatFlag {
                         interval = value.parse().unwrap_or(1);
                     }
                     "BYDAY" => {
-                        let parsed_days: Vec<RepeatDay> = value
+                        let parsed_days: Vec<Weekday> = value
                             .split(',')
                             .filter_map(|day| match day {
-                                "MO" => Some(RepeatDay::Monday),
-                                "TU" => Some(RepeatDay::Tuesday),
-                                "WE" => Some(RepeatDay::Wednesday),
-                                "TH" => Some(RepeatDay::Thursday),
-                                "FR" => Some(RepeatDay::Friday),
-                                "SA" => Some(RepeatDay::Saturday),
-                                "SU" => Some(RepeatDay::Sunday),
+                                "MO" => Some(Weekday::Mon),
+                                "TU" => Some(Weekday::Tue),
+                                "WE" => Some(Weekday::Wed),
+                                "TH" => Some(Weekday::Thu),
+                                "FR" => Some(Weekday::Fri),
+                                "SA" => Some(Weekday::Sat),
+                                "SU" => Some(Weekday::Sun),
                                 _ => None,
                             })
                             .collect();
@@ -625,11 +616,11 @@ impl RepeatFlag {
                             && parsed_days.iter().all(|d| {
                                 matches!(
                                     d,
-                                    RepeatDay::Monday
-                                        | RepeatDay::Tuesday
-                                        | RepeatDay::Wednesday
-                                        | RepeatDay::Thursday
-                                        | RepeatDay::Friday
+                                    Weekday::Mon
+                                        | Weekday::Tue
+                                        | Weekday::Wed
+                                        | Weekday::Thu
+                                        | Weekday::Fri
                                 )
                             })
                         {
@@ -703,27 +694,15 @@ impl RepeatFlag {
         }
     }
 
-    // fn day_to_string(day: &RepeatDay) -> &'static str {
-    //     match day {
-    //         RepeatDay::Monday => "Monday",
-    //         RepeatDay::Tuesday => "Tuesday",
-    //         RepeatDay::Wednesday => "Wednesday",
-    //         RepeatDay::Thursday => "Thursday",
-    //         RepeatDay::Friday => "Friday",
-    //         RepeatDay::Saturday => "Saturday",
-    //         RepeatDay::Sunday => "Sunday",
-    //     }
-    // }
-
-    fn day_to_short_string(day: &RepeatDay) -> &'static str {
+    fn day_to_short_string(day: &Weekday) -> &'static str {
         match day {
-            RepeatDay::Monday => "Mon",
-            RepeatDay::Tuesday => "Tue",
-            RepeatDay::Wednesday => "Wed",
-            RepeatDay::Thursday => "Thu",
-            RepeatDay::Friday => "Fri",
-            RepeatDay::Saturday => "Sat",
-            RepeatDay::Sunday => "Sun",
+            Weekday::Mon => "Mon",
+            Weekday::Tue => "Tue",
+            Weekday::Wed => "Wed",
+            Weekday::Thu => "Thu",
+            Weekday::Fri => "Fri",
+            Weekday::Sat => "Sat",
+            Weekday::Sun => "Sun",
         }
     }
 
@@ -743,13 +722,13 @@ impl RepeatFlag {
             let days_str: Vec<&str> = days
                 .iter()
                 .map(|day| match day {
-                    RepeatDay::Monday => "MO",
-                    RepeatDay::Tuesday => "TU",
-                    RepeatDay::Wednesday => "WE",
-                    RepeatDay::Thursday => "TH",
-                    RepeatDay::Friday => "FR",
-                    RepeatDay::Saturday => "SA",
-                    RepeatDay::Sunday => "SU",
+                    Weekday::Mon => "MO",
+                    Weekday::Tue => "TU",
+                    Weekday::Wed => "WE",
+                    Weekday::Thu => "TH",
+                    Weekday::Fri => "FR",
+                    Weekday::Sat => "SA",
+                    Weekday::Sun => "SU",
                 })
                 .collect();
             flag += &format!(";BYDAY={}", days_str.join(","));

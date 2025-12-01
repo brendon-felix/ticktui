@@ -1,5 +1,6 @@
-use crate::tasks::RepeatDay;
-use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveTime, Timelike};
+use chrono::{NaiveTime, Weekday};
+
+use crate::taskparser::timeutils;
 
 /// Normalize string for case-insensitive matching
 pub fn normalize_str(s: &str) -> String {
@@ -15,27 +16,27 @@ pub fn matches_any(s: &str, candidates: &[&str]) -> bool {
 /// Parse weekday name to chrono::Weekday
 pub fn parse_chrono_weekday(s: &str) -> Option<chrono::Weekday> {
     match normalize_str(s).as_str() {
-        s if matches_any(s, &["monday", "mon"]) => Some(chrono::Weekday::Mon),
-        s if matches_any(s, &["tuesday", "tue"]) => Some(chrono::Weekday::Tue),
+        s if matches_any(s, &["monday", "mon"]) => Some(Weekday::Mon),
+        s if matches_any(s, &["tuesday", "tue"]) => Some(Weekday::Tue),
         s if matches_any(s, &["wednesday", "wed"]) => Some(chrono::Weekday::Wed),
-        s if matches_any(s, &["thursday", "thu", "thur"]) => Some(chrono::Weekday::Thu),
-        s if matches_any(s, &["friday", "fri"]) => Some(chrono::Weekday::Fri),
-        s if matches_any(s, &["saturday", "sat"]) => Some(chrono::Weekday::Sat),
-        s if matches_any(s, &["sunday", "sun"]) => Some(chrono::Weekday::Sun),
+        s if matches_any(s, &["thursday", "thu", "thur"]) => Some(Weekday::Thu),
+        s if matches_any(s, &["friday", "fri"]) => Some(Weekday::Fri),
+        s if matches_any(s, &["saturday", "sat"]) => Some(Weekday::Sat),
+        s if matches_any(s, &["sunday", "sun"]) => Some(Weekday::Sun),
         _ => None,
     }
 }
 
-/// Parse weekday name to RepeatDay
-pub fn parse_repeat_weekday(s: &str) -> Option<RepeatDay> {
+/// Parse weekday name to Weekday
+pub fn parse_repeat_weekday(s: &str) -> Option<Weekday> {
     match normalize_str(s).as_str() {
-        s if matches_any(s, &["monday", "mon"]) => Some(RepeatDay::Monday),
-        s if matches_any(s, &["tuesday", "tue"]) => Some(RepeatDay::Tuesday),
-        s if matches_any(s, &["wednesday", "wed"]) => Some(RepeatDay::Wednesday),
-        s if matches_any(s, &["thursday", "thu", "thur"]) => Some(RepeatDay::Thursday),
-        s if matches_any(s, &["friday", "fri"]) => Some(RepeatDay::Friday),
-        s if matches_any(s, &["saturday", "sat"]) => Some(RepeatDay::Saturday),
-        s if matches_any(s, &["sunday", "sun"]) => Some(RepeatDay::Sunday),
+        s if matches_any(s, &["monday", "mon"]) => Some(Weekday::Mon),
+        s if matches_any(s, &["tuesday", "tue"]) => Some(Weekday::Tue),
+        s if matches_any(s, &["wednesday", "wed"]) => Some(Weekday::Wed),
+        s if matches_any(s, &["thursday", "thu", "thur"]) => Some(Weekday::Thu),
+        s if matches_any(s, &["friday", "fri"]) => Some(Weekday::Fri),
+        s if matches_any(s, &["saturday", "sat"]) => Some(Weekday::Sat),
+        s if matches_any(s, &["sunday", "sun"]) => Some(Weekday::Sun),
         _ => None,
     }
 }
@@ -69,130 +70,41 @@ pub fn parse_day_number(s: &str) -> Option<u32> {
     s_clean.parse().ok()
 }
 
-/// Calculate next occurrence of a weekday (always in the future)
-pub fn next_weekday(weekday: chrono::Weekday) -> DateTime<Local> {
-    let now = Local::now();
-    let current_weekday = now.weekday();
-    let days_until = ((weekday.num_days_from_monday() as i64
-        - current_weekday.num_days_from_monday() as i64
-        + 7)
-        % 7) as i64;
-    let days_until = if days_until == 0 { 7 } else { days_until };
-
-    (now + chrono::Duration::days(days_until))
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
+pub fn parse_time(s: &str) -> Option<NaiveTime> {
+    parse_12hour_time(s).or_else(|| parse_24hour_time(s))
 }
 
-/// Calculate next occurrence of a weekday within the current week (could be today)
-pub fn next_weekday_within_week(weekday: chrono::Weekday) -> DateTime<Local> {
-    let now = Local::now();
-    let current_weekday = now.weekday();
-    let days_until = ((weekday.num_days_from_monday() as i64
-        - current_weekday.num_days_from_monday() as i64
-        + 7)
-        % 7) as i64;
+fn parse_12hour_time(s: &str) -> Option<NaiveTime> {
+    let s_lower = s.to_lowercase();
+    let is_pm = s_lower.ends_with("pm");
+    let is_am = s_lower.ends_with("am");
 
-    (now + chrono::Duration::days(days_until))
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_local_timezone(Local)
-        .unwrap()
-}
-
-/// Convert RepeatDay to chrono::Weekday
-pub fn repeat_day_to_weekday(day: &RepeatDay) -> chrono::Weekday {
-    match day {
-        RepeatDay::Monday => chrono::Weekday::Mon,
-        RepeatDay::Tuesday => chrono::Weekday::Tue,
-        RepeatDay::Wednesday => chrono::Weekday::Wed,
-        RepeatDay::Thursday => chrono::Weekday::Thu,
-        RepeatDay::Friday => chrono::Weekday::Fri,
-        RepeatDay::Saturday => chrono::Weekday::Sat,
-        RepeatDay::Sunday => chrono::Weekday::Sun,
+    if !is_pm && !is_am {
+        return None;
     }
-}
 
-/// Calculate the next occurrence for a repeat pattern that specifies days
-pub fn calculate_first_occurrence_from_repeat(
-    repeat_flag: &crate::tasks::RepeatFlag,
-) -> Option<DateTime<Local>> {
-    match repeat_flag.freq() {
-        crate::tasks::RepeatFreq::Weekly => {
-            if let Some(days) = repeat_flag.days() {
-                if !days.is_empty() {
-                    // For weekly repeats with specific days, find the next occurrence of the first specified day
-                    let weekday = repeat_day_to_weekday(&days[0]);
-                    Some(next_weekday_within_week(weekday))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        crate::tasks::RepeatFreq::Weekdays => {
-            // For weekdays, find the next weekday
-            let now = Local::now();
-            let current_weekday = now.weekday();
+    let time_part = s_lower.trim_end_matches("pm").trim_end_matches("am");
 
-            // Find the next weekday (Mon-Fri)
-            let weekdays = [
-                chrono::Weekday::Mon,
-                chrono::Weekday::Tue,
-                chrono::Weekday::Wed,
-                chrono::Weekday::Thu,
-                chrono::Weekday::Fri,
-            ];
-
-            // Find the next weekday after today
-            for &weekday in &weekdays {
-                let days_until = ((weekday.num_days_from_monday() as i64
-                    - current_weekday.num_days_from_monday() as i64
-                    + 7)
-                    % 7) as i64;
-
-                if days_until > 0 || (days_until == 0 && now.hour() < 9) {
-                    return Some(
-                        (now + chrono::Duration::days(if days_until == 0 {
-                            0
-                        } else {
-                            days_until
-                        }))
-                        .date_naive()
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_local_timezone(Local)
-                        .unwrap(),
-                    );
-                }
-            }
-
-            // If we're past all weekdays this week, go to next Monday
-            Some(next_weekday(chrono::Weekday::Mon))
-        }
-        crate::tasks::RepeatFreq::Daily => {
-            // For daily, just use tomorrow
-            let now = Local::now();
-            Some(
-                (now + chrono::Duration::days(1))
-                    .date_naive()
-                    .and_hms_opt(0, 0, 0)
-                    .unwrap()
-                    .and_local_timezone(Local)
-                    .unwrap(),
-            )
-        }
-        _ => None, // Monthly and yearly need more context
+    // like "3pm"
+    if let Ok(hour) = time_part.parse::<u32>() {
+        return timeutils::create_12hour_time(hour, 0, is_pm);
     }
+
+    // like "3:30pm"
+    if let Some((hour_str, min_str)) = time_part.split_once(':') {
+        if let (Ok(hour), Ok(min)) = (hour_str.parse::<u32>(), min_str.parse::<u32>()) {
+            return timeutils::create_12hour_time(hour, min, is_pm);
+        }
+    }
+
+    None
 }
 
-/// Create a date with time from components
-pub fn create_date_with_time(date: NaiveDate, time: Option<NaiveTime>) -> DateTime<Local> {
-    let final_time = time.unwrap_or_else(|| NaiveTime::from_hms_opt(0, 0, 0).unwrap());
-    date.and_time(final_time).and_local_timezone(Local).unwrap()
+fn parse_24hour_time(s: &str) -> Option<NaiveTime> {
+    if let Some((hour_str, min_str)) = s.split_once(':') {
+        if let (Ok(hour), Ok(min)) = (hour_str.parse::<u32>(), min_str.parse::<u32>()) {
+            return NaiveTime::from_hms_opt(hour, min, 0);
+        }
+    }
+    None
 }

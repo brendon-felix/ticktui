@@ -20,16 +20,16 @@ impl DueDateParser {
         let today = now.date_naive();
 
         // Try time-first patterns (e.g., "3pm today", "4pm tomorrow")
-        if let Some(time) = timeutils::parse_time(words[0]) {
+        if let Some(time) = parseutils::parse_time(words[0]) {
             if words.len() > 1 {
                 match parseutils::normalize_str(words[1]).as_str() {
                     "today" => {
-                        let dt = parseutils::create_date_with_time(today, Some(time));
+                        let dt = timeutils::create_date_with_time(today, Some(time));
                         return Some((TokenType::DueDate(dt), 2));
                     }
                     "tomorrow" => {
                         let tomorrow = today + chrono::Duration::days(1);
-                        let dt = parseutils::create_date_with_time(tomorrow, Some(time));
+                        let dt = timeutils::create_date_with_time(tomorrow, Some(time));
                         return Some((TokenType::DueDate(dt), 2));
                     }
                     _ => {}
@@ -41,21 +41,21 @@ impl DueDateParser {
         match parseutils::normalize_str(words[0]).as_str() {
             "today" => {
                 let time = if words.len() > 1 {
-                    timeutils::parse_time(words[1])
+                    parseutils::parse_time(words[1])
                 } else {
                     None
                 };
-                let dt = parseutils::create_date_with_time(today, time);
+                let dt = timeutils::create_date_with_time(today, time);
                 Some((TokenType::DueDate(dt), if time.is_some() { 2 } else { 1 }))
             }
             "tomorrow" => {
                 let tomorrow = today + chrono::Duration::days(1);
                 let time = if words.len() > 1 {
-                    timeutils::parse_time(words[1])
+                    parseutils::parse_time(words[1])
                 } else {
                     None
                 };
-                let dt = parseutils::create_date_with_time(tomorrow, time);
+                let dt = timeutils::create_date_with_time(tomorrow, time);
                 Some((TokenType::DueDate(dt), if time.is_some() { 2 } else { 1 }))
             }
             _ => None,
@@ -68,10 +68,10 @@ impl DueDateParser {
         }
 
         // Try time-first pattern (e.g., "3pm next friday")
-        if let Some(time) = timeutils::parse_time(words[0]) {
+        if let Some(time) = parseutils::parse_time(words[0]) {
             if words.len() > 2 && parseutils::normalize_str(words[1]) == "next" {
                 if let Some(weekday) = parseutils::parse_chrono_weekday(words[2]) {
-                    let base_dt = parseutils::next_weekday(weekday);
+                    let base_dt = timeutils::next_weekday(weekday);
                     let dt = base_dt
                         .date_naive()
                         .and_time(time)
@@ -86,7 +86,7 @@ impl DueDateParser {
         try_parse_pattern(words, 2, |words| {
             if parseutils::normalize_str(words[0]) == "next" {
                 parseutils::parse_chrono_weekday(words[1])
-                    .map(|weekday| TokenType::DueDate(parseutils::next_weekday(weekday)))
+                    .map(|weekday| TokenType::DueDate(timeutils::next_weekday(weekday)))
             } else {
                 None
             }
@@ -99,10 +99,10 @@ impl DueDateParser {
         }
 
         // Try time-first pattern (e.g., "3pm friday")
-        if let Some(time) = timeutils::parse_time(words[0]) {
+        if let Some(time) = parseutils::parse_time(words[0]) {
             if words.len() > 1 {
                 if let Some(weekday) = parseutils::parse_chrono_weekday(words[1]) {
-                    let base_dt = parseutils::next_weekday_within_week(weekday);
+                    let base_dt = timeutils::next_weekday_within_week(weekday);
                     let dt = base_dt
                         .date_naive()
                         .and_time(time)
@@ -116,11 +116,11 @@ impl DueDateParser {
         // Try date-first pattern (e.g., "friday", "friday 3pm")
         if let Some(weekday) = parseutils::parse_chrono_weekday(words[0]) {
             let time = if words.len() > 1 {
-                timeutils::parse_time(words[1])
+                parseutils::parse_time(words[1])
             } else {
                 None
             };
-            let base_dt = parseutils::next_weekday_within_week(weekday);
+            let base_dt = timeutils::next_weekday_within_week(weekday);
             let dt = if let Some(time) = time {
                 base_dt
                     .date_naive()
@@ -137,9 +137,9 @@ impl DueDateParser {
     }
 
     fn parse_time_only(&self, words: &[&str]) -> Option<(TokenType, usize)> {
-        timeutils::parse_time(words[0]).map(|time| {
+        parseutils::parse_time(words[0]).map(|time| {
             let today = Local::now().date_naive();
-            let dt = parseutils::create_date_with_time(today, Some(time));
+            let dt = timeutils::create_date_with_time(today, Some(time));
             (TokenType::DueDate(dt), 1)
         })
     }
@@ -150,7 +150,7 @@ impl DueDateParser {
         }
 
         // Try time-first pattern (e.g., "3pm dec 3")
-        if let Some(time) = timeutils::parse_time(words[0]) {
+        if let Some(time) = parseutils::parse_time(words[0]) {
             if words.len() > 2 {
                 if let (Some(month), Some(day)) = (
                     parseutils::parse_month_name(words[1]),
@@ -158,7 +158,7 @@ impl DueDateParser {
                 ) {
                     let year = Local::now().year();
                     if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
-                        let dt = parseutils::create_date_with_time(date, Some(time));
+                        let dt = timeutils::create_date_with_time(date, Some(time));
                         return Some((TokenType::DueDate(dt), 3));
                     }
                 }
@@ -174,11 +174,11 @@ impl DueDateParser {
             if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
                 // Check if there's a time component in the third word
                 let time = if words.len() > 2 {
-                    timeutils::parse_time(words[2])
+                    parseutils::parse_time(words[2])
                 } else {
                     None
                 };
-                let dt = parseutils::create_date_with_time(date, time);
+                let dt = timeutils::create_date_with_time(date, time);
                 let consumed = if time.is_some() { 3 } else { 2 };
                 Some((TokenType::DueDate(dt), consumed))
             } else {
@@ -195,7 +195,7 @@ impl DueDateParser {
         }
 
         // Try time-first pattern (e.g., "3pm 12/31")
-        if let Some(time) = timeutils::parse_time(words[0]) {
+        if let Some(time) = parseutils::parse_time(words[0]) {
             if words.len() > 1 && words[1].contains('/') {
                 let parts: Vec<&str> = words[1].split('/').collect();
                 let today = Local::now().date_naive();
@@ -209,7 +209,7 @@ impl DueDateParser {
                             parts[2].parse::<i32>(),
                         ) {
                             if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
-                                let dt = parseutils::create_date_with_time(date, Some(time));
+                                let dt = timeutils::create_date_with_time(date, Some(time));
                                 return Some((TokenType::DueDate(dt), 2));
                             }
                         }
@@ -221,7 +221,7 @@ impl DueDateParser {
                         {
                             let year = today.year();
                             if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
-                                let dt = parseutils::create_date_with_time(date, Some(time));
+                                let dt = timeutils::create_date_with_time(date, Some(time));
                                 return Some((TokenType::DueDate(dt), 2));
                             }
                         }
@@ -249,7 +249,7 @@ impl DueDateParser {
                 ) {
                     NaiveDate::from_ymd_opt(year, month, day).map(|date| {
                         (
-                            TokenType::DueDate(parseutils::create_date_with_time(date, None)),
+                            TokenType::DueDate(timeutils::create_date_with_time(date, None)),
                             1,
                         )
                     })
@@ -263,7 +263,7 @@ impl DueDateParser {
                     let year = today.year();
                     NaiveDate::from_ymd_opt(year, month, day).map(|date| {
                         (
-                            TokenType::DueDate(parseutils::create_date_with_time(date, None)),
+                            TokenType::DueDate(timeutils::create_date_with_time(date, None)),
                             1,
                         )
                     })

@@ -12,7 +12,7 @@ use tui_textarea::Input;
 
 use crate::{
     app::AppAction,
-    taskparser::{TaskParser, TokenType},
+    taskparser::{TaskParser, TokenType, timeutils},
     tasks::{TaskAction, TaskData},
     ui::{
         UIAction,
@@ -175,7 +175,7 @@ fn parse(content: &str, view: View) -> TaskData {
 
     // Check if we have a repeat pattern and can infer a date from it
     let inferred_repeat_date = if let Some(ref repeat_flag) = repeat_flag_parsed {
-        crate::taskparser::parseutils::calculate_first_occurrence_from_repeat(repeat_flag)
+        timeutils::initial_occurrence(repeat_flag)
     } else {
         None
     };
