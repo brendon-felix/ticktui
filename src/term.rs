@@ -149,10 +149,17 @@ impl AppTerminal {
         crossterm::terminal::enable_raw_mode()?;
         crossterm::execute!(stdout(), EnterAlternateScreen, cursor::Hide)?;
         crossterm::execute!(stdout(), EnableMouseCapture)?;
-        crossterm::execute!(
-            stdout(),
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        )?;
+        // only on macos
+        if cfg!(target_os = "macos") {
+            // crossterm::execute!(
+            //     stdout(),
+            //     PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::ENABLE_CSI_U_KEY_ENCODING)
+            // )?;
+            crossterm::execute!(
+                stdout(),
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            )?;
+        }
         self.start();
         Ok(())
     }
