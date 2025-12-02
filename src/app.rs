@@ -23,7 +23,7 @@ pub enum AppAction {
     RefreshData,
     UpdateCache,
     TaskAction(TaskAction, TaskData),
-    RescheduleMultipleTasks(Vec<TaskData>),
+    // RescheduleMultipleTasks(Vec<TaskData>),
     UIAction(UIAction),
     MultiAction(Vec<AppAction>),
     AfterNTicks(u32, Box<AppAction>),
@@ -197,9 +197,9 @@ impl App {
             AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
             AppAction::TaskAction(action, data) => self.execute_task_action(action, data, tx),
-            AppAction::RescheduleMultipleTasks(task_data_list) => {
-                self.execute_reschedule_multiple_tasks(task_data_list, tx)
-            }
+            // AppAction::RescheduleMultipleTasks(task_data_list) => {
+            //     self.execute_reschedule_multiple_tasks(task_data_list, tx)
+            // }
             AppAction::UIAction(action) => self.ui.execute_action(action, tx),
             AppAction::MultiAction(actions) => {
                 for act in actions {
@@ -233,21 +233,20 @@ impl App {
                 TaskAction::Edit => tasks::edit_task(&client, data).await,
                 TaskAction::Complete => tasks::complete_task(&client, data).await,
                 TaskAction::Delete => tasks::delete_task(&client, data).await,
-                TaskAction::Reschedule => tasks::reschedule_task(&client, data).await,
             }
         });
         self.refresh_tasks(tx.clone())
     }
 
-    fn execute_reschedule_multiple_tasks(
-        &mut self,
-        task_data_list: Vec<TaskData>,
-        tx: &UnboundedSender<AppAction>,
-    ) {
-        let client = Arc::clone(&self.client);
-        let _ = tokio::spawn(async move { tasks::reschedule_tasks(&client, task_data_list).await });
-        self.refresh_tasks(tx.clone())
-    }
+    // fn execute_reschedule_multiple_tasks(
+    //     &mut self,
+    //     task_data_list: Vec<TaskData>,
+    //     tx: &UnboundedSender<AppAction>,
+    // ) {
+    //     let client = Arc::clone(&self.client);
+    //     let _ = tokio::spawn(async move { tasks::reschedule_tasks(&client, task_data_list).await });
+    //     self.refresh_tasks(tx.clone())
+    // }
 
     fn render(&mut self, last_frame: Instant) -> Result<()> {
         self.ti.draw(|f| {

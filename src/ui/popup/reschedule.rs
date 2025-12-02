@@ -12,6 +12,7 @@ use tui_textarea::Input;
 use crate::{
     app::AppAction,
     taskparser::{TaskParser, TokenType},
+    tasks::{TaskAction, TaskData},
     ui::{
         UIAction,
         editor::{
@@ -26,16 +27,18 @@ use crate::{
 
 pub struct ReschedulePopup {
     editor: Editor,
+    selected_tasks: Vec<TaskData>,
     block: Block<'static>,
     tx: UnboundedSender<AppAction>,
 }
 
 impl ReschedulePopup {
-    pub fn new(tx: UnboundedSender<AppAction>) -> Self {
+    pub fn new(selected_tasks: Vec<TaskData>, tx: UnboundedSender<AppAction>) -> Self {
         let mut editor = Editor::new().with_single_line();
         editor.set_mode(EditorMode::Insert);
         Self {
             editor,
+            selected_tasks,
             block: Block::new()
                 .title(" Reschedule Tasks ")
                 .title_alignment(Alignment::Center)
@@ -48,10 +51,36 @@ impl ReschedulePopup {
     fn submit(&mut self) {
         let content = self.editor.get_content().trim().to_string();
         if !content.is_empty() {
-            let _ = self
-                .tx
-                .send(AppAction::UIAction(UIAction::RescheduleTask(content)));
-            let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
+            if let Some(target) = parse_input(&content).ok() {
+                // let _ = self.tx.send(AppAction::TaskAction(TaskAction::Reschedule));
+                if let Some(earliest_due) = self
+                    .selected_tasks
+                    .iter()
+                    .filter_map(|task| task.due_date)
+                    .filter(|dt| dt.timestamp() > 0)
+                    .min()
+                {
+                    self.selected_tasks
+                        .iter()
+                        .cloned()
+                        .for_each(|mut task_data| {
+                            task_data.due_date = match &target {
+                                RescheduleTarget::RelativeToDueDate(duration) => {
+                                    Some(task_data.due_date.unwrap() + *duration)
+                                }
+                                RescheduleTarget::AbsoluteTime(dt) => {
+                                    let utc = dt.with_timezone(&chrono::Utc);
+                                    let duration = utc - earliest_due;
+                                    Some(task_data.due_date.unwrap() + duration)
+                                }
+                            };
+                            let _ = self
+                                .tx
+                                .send(AppAction::TaskAction(TaskAction::Edit, task_data));
+                        });
+                    let _ = self.tx.send(AppAction::UIAction(UIAction::ClosePopup));
+                }
+            }
         }
     }
 }
@@ -104,7 +133,7 @@ impl Popup for ReschedulePopup {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RescheduleTarget {
     /// Relative to the task's original due datetime (e.g., "5min", "2 hours")
     RelativeToDueDate(chrono::Duration),
@@ -112,7 +141,7 @@ pub enum RescheduleTarget {
     AbsoluteTime(chrono::DateTime<chrono::Local>),
 }
 
-pub fn parse_duration(duration_str: &str) -> Result<RescheduleTarget, String> {
+fn parse_input(duration_str: &str) -> Result<RescheduleTarget, String> {
     // First, try the legacy relative/absolute duration parsing for backward compatibility
     if let Ok(target) = parse_legacy_duration(duration_str) {
         return Ok(target);

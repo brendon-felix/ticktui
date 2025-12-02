@@ -28,6 +28,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     app::AppAction,
+    tasks::TaskData,
     ui::{
         // batchmode::BatchModeUI,
         focusmode::FocusModeAction,
@@ -50,7 +51,7 @@ pub enum UIAction {
     Confirm(Text<'static>, Box<AppAction>),
     NewTask,
     BatchCreateTask,
-    RescheduleTask(String),
+    // RescheduleTask(String),
     ClosePopup,
     DebugMsg(String, u16),
 }
@@ -112,9 +113,9 @@ impl AppUI {
             UIAction::BatchCreateTask => {
                 self.batch_create_task();
             }
-            UIAction::RescheduleTask(duration_str) => {
-                self.reschedule_task(duration_str);
-            }
+            // UIAction::RescheduleTask(duration_str) => {
+            //     self.reschedule_task(duration_str);
+            // }
             UIAction::ClosePopup => {
                 self.close_popup();
             }
@@ -158,41 +159,56 @@ impl AppUI {
     }
 
     pub fn reschedule_popup(&mut self) {
-        let popup = ReschedulePopup::new(self.tx.clone());
-        self.popup = Some(Box::new(popup));
-    }
-
-    pub fn reschedule_task(&mut self, duration_str: String) {
-        // Get selected tasks from current mode
-        let selected_tasks = match self.mode {
-            AppUIMode::Normal => self.normal_ui.get_selected_tasks(),
+        let selected_tasks: Vec<TaskData> = match self.mode {
+            AppUIMode::Normal => self
+                .normal_ui
+                .get_selected_tasks()
+                .iter()
+                .map(|task| TaskData::from_task(task))
+                .collect(),
             AppUIMode::Focus => {
-                // Focus mode doesn't support multi-select, just get current task
                 if let Some(current_task) = self.focus_ui.get_current_task() {
-                    vec![current_task]
+                    vec![TaskData::from_task(&current_task)]
                 } else {
                     vec![]
                 }
             }
         };
-
-        if !selected_tasks.is_empty() {
-            // Create task data for all selected tasks with the same duration string
-            let task_data_list: Vec<crate::tasks::TaskData> = selected_tasks
-                .into_iter()
-                .map(|task| {
-                    let mut task_data = crate::tasks::TaskData::from_task(&task);
-                    task_data.reschedule_duration = Some(duration_str.clone());
-                    task_data
-                })
-                .collect();
-
-            // Use the new RescheduleMultipleTasks action to handle relative timing
-            let _ = self
-                .tx
-                .send(AppAction::RescheduleMultipleTasks(task_data_list));
-        }
+        let popup = ReschedulePopup::new(selected_tasks, self.tx.clone());
+        self.popup = Some(Box::new(popup));
     }
+
+    // pub fn reschedule_task(&mut self, duration_str: String) {
+    //     // Get selected tasks from current mode
+    //     let selected_tasks = match self.mode {
+    //         AppUIMode::Normal => self.normal_ui.get_selected_tasks(),
+    //         AppUIMode::Focus => {
+    //             // Focus mode doesn't support multi-select, just get current task
+    //             if let Some(current_task) = self.focus_ui.get_current_task() {
+    //                 vec![current_task]
+    //             } else {
+    //                 vec![]
+    //             }
+    //         }
+    //     };
+
+    //     if !selected_tasks.is_empty() {
+    //         // Create task data for all selected tasks with the same duration string
+    //         let task_data_list: Vec<crate::tasks::TaskData> = selected_tasks
+    //             .into_iter()
+    //             .map(|task| {
+    //                 let mut task_data = crate::tasks::TaskData::from_task(&task);
+    //                 task_data.reschedule_duration = Some(duration_str.clone());
+    //                 task_data
+    //             })
+    //             .collect();
+
+    //         // Use the new RescheduleMultipleTasks action to handle relative timing
+    //         let _ = self
+    //             .tx
+    //             .send(AppAction::RescheduleMultipleTasks(task_data_list));
+    //     }
+    // }
 
     pub fn new_task(&mut self) {
         let view = match self.mode {
