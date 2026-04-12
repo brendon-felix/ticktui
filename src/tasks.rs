@@ -46,6 +46,7 @@ pub struct Task {
     pub sort_order: i64,
     pub updated_at: DateTime<Utc>,
     pub synced_at: Option<DateTime<Utc>>,
+    pub deleted: bool,
 }
 
 impl Task {

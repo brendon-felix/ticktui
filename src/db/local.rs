@@ -30,6 +30,7 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         .with_timezone(&Utc);
 
     let is_all_day_int: i64 = row.get(8)?;
+    let deleted_int: i64 = row.get::<_, i64>(12).unwrap_or(0);
 
     Ok(Task {
         id: row.get(0)?,
@@ -44,6 +45,7 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         sort_order: row.get::<_, i64>(11).unwrap_or(0),
         updated_at,
         synced_at,
+        deleted: deleted_int != 0,
     })
 }
 
@@ -57,9 +59,31 @@ pub async fn fetch_all_tasks(conn: Arc<Mutex<Connection>>) -> Result<Vec<Task>> 
         let guard = conn.lock().map_err(|e| anyhow!("mutex poisoned: {e}"))?;
         let mut stmt = guard.prepare(
             "SELECT id, project_id, title, content, due_date, priority, repeat_flag,
-                    status, is_all_day, updated_at, synced_at, sort_order
+                    status, is_all_day, updated_at, synced_at, sort_order, deleted
              FROM tasks
-             WHERE status != 2
+             WHERE status != 2 AND deleted = 0
+             ORDER BY CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
+                      due_date ASC",
+        )?;
+        let tasks = stmt
+            .query_map([], row_to_task)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(tasks)
+    })
+    .await?
+}
+
+/// Fetch ALL tasks including completed ones, sorted by due_date ASC (NULLs last).
+pub async fn fetch_all_tasks_including_completed(
+    conn: Arc<Mutex<Connection>>,
+) -> Result<Vec<Task>> {
+    task::spawn_blocking(move || {
+        let guard = conn.lock().map_err(|e| anyhow!("mutex poisoned: {e}"))?;
+        let mut stmt = guard.prepare(
+            "SELECT id, project_id, title, content, due_date, priority, repeat_flag,
+                    status, is_all_day, updated_at, synced_at, sort_order, deleted
+             FROM tasks
+             WHERE deleted = 0
              ORDER BY CASE WHEN due_date IS NULL THEN 1 ELSE 0 END,
                       due_date ASC",
         )?;
@@ -77,7 +101,7 @@ pub async fn fetch_dirty_tasks(conn: Arc<Mutex<Connection>>) -> Result<Vec<Task>
         let guard = conn.lock().map_err(|e| anyhow!("mutex poisoned: {e}"))?;
         let mut stmt = guard.prepare(
             "SELECT id, project_id, title, content, due_date, priority, repeat_flag,
-                    status, is_all_day, updated_at, synced_at, sort_order
+                    status, is_all_day, updated_at, synced_at, sort_order, deleted
              FROM tasks
              WHERE synced_at IS NULL",
         )?;
@@ -202,8 +226,26 @@ pub async fn complete_task(conn: Arc<Mutex<Connection>>, task_id: String) -> Res
     .await?
 }
 
-/// Permanently delete a task by id.
+/// Soft-delete a task: marks it as deleted and dirty so the sync loop can
+/// propagate the deletion to Postgres before hard-deleting it locally.
 pub async fn delete_task(conn: Arc<Mutex<Connection>>, task_id: String) -> Result<()> {
+    task::spawn_blocking(move || {
+        let guard = conn.lock().map_err(|e| anyhow!("mutex poisoned: {e}"))?;
+        guard.execute(
+            "UPDATE tasks SET deleted = 1,
+                              updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                              synced_at = NULL
+             WHERE id = ?1",
+            params![task_id],
+        )?;
+        Ok(())
+    })
+    .await?
+}
+
+/// Hard-delete a task row from SQLite entirely (called after the deletion has
+/// been confirmed as synced to Postgres, or when no sync is configured).
+pub async fn hard_delete_task(conn: Arc<Mutex<Connection>>, task_id: String) -> Result<()> {
     task::spawn_blocking(move || {
         let guard = conn.lock().map_err(|e| anyhow!("mutex poisoned: {e}"))?;
         guard.execute("DELETE FROM tasks WHERE id = ?1", params![task_id])?;
@@ -233,12 +275,14 @@ pub async fn upsert_task(conn: Arc<Mutex<Connection>>, task: Task) -> Result<()>
         let synced_at = task.synced_at.map(|dt| dt.to_rfc3339());
         let updated_at = task.updated_at.to_rfc3339();
         let is_all_day: i64 = if task.is_all_day { 1 } else { 0 };
+        let deleted: i64 = if task.deleted { 1 } else { 0 };
 
         let guard = conn.lock().map_err(|e| anyhow!("mutex poisoned: {e}"))?;
         guard.execute(
             "INSERT INTO tasks (id, project_id, title, content, due_date, priority,
-                                repeat_flag, status, is_all_day, updated_at, synced_at, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                                repeat_flag, status, is_all_day, updated_at, synced_at, sort_order,
+                                deleted)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(id) DO UPDATE SET
                  project_id  = excluded.project_id,
                  title       = excluded.title,
@@ -250,7 +294,8 @@ pub async fn upsert_task(conn: Arc<Mutex<Connection>>, task: Task) -> Result<()>
                  is_all_day  = excluded.is_all_day,
                  updated_at  = excluded.updated_at,
                  synced_at   = excluded.synced_at,
-                 sort_order  = excluded.sort_order",
+                 sort_order  = excluded.sort_order,
+                 deleted     = excluded.deleted",
             params![
                 task.id,
                 task.project_id,
@@ -263,7 +308,8 @@ pub async fn upsert_task(conn: Arc<Mutex<Connection>>, task: Task) -> Result<()>
                 is_all_day,
                 updated_at,
                 synced_at,
-                task.sort_order
+                task.sort_order,
+                deleted
             ],
         )?;
         Ok(())

@@ -220,7 +220,7 @@ fn parse(content: &str, view: View) -> TaskData {
                             .with_timezone(&chrono::Utc),
                     )
                 }
-                View::Inbox | View::All => None,
+                View::Inbox | View::All | View::Completed => None,
             };
             data.due_date = default_date;
         }

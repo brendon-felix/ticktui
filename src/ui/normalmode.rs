@@ -288,7 +288,7 @@ fn create_areas(main_area: Rect) -> (Rect, Rect) {
 
     let left_chunks = Layout::new(
         Direction::Vertical,
-        [Constraint::Length(17), Constraint::Fill(1)],
+        [Constraint::Length(20), Constraint::Fill(1)],
     )
     .split(chunks[0]);
     (left_chunks[0], chunks[1])

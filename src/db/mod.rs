@@ -19,8 +19,27 @@ impl Db {
         // Enable WAL for better concurrent read performance
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
 
-        // Run the embedded migration SQL
+        // Run the embedded migration SQL (CREATE TABLE IF NOT EXISTS — safe to re-run)
         conn.execute_batch(include_str!("../../migrations/001_initial.sql"))?;
+
+        // Incremental migrations for existing databases.
+        // ALTER TABLE ADD COLUMN silently fails if we catch the error, so we
+        // attempt each column addition and ignore "duplicate column" errors.
+        let migrations: &[&str] =
+            &["ALTER TABLE tasks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"];
+        for sql in migrations {
+            match conn.execute_batch(sql) {
+                Ok(_) => {}
+                Err(e) => {
+                    // SQLite returns "duplicate column name" for ADD COLUMN on
+                    // an existing column — that's fine, everything else is not.
+                    let msg = e.to_string();
+                    if !msg.contains("duplicate column name") {
+                        return Err(e.into());
+                    }
+                }
+            }
+        }
 
         Ok(Arc::new(Self {
             conn: Arc::new(Mutex::new(conn)),

@@ -19,6 +19,15 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
     // --- Push dirty rows up ---
     let dirty = local::fetch_dirty_tasks(Arc::clone(&conn)).await?;
     for task in &dirty {
+        if task.deleted {
+            // Propagate deletion to Postgres, then hard-delete locally.
+            pg.execute("DELETE FROM tasks WHERE id = $1", &[&task.id.as_str()])
+                .await?;
+            local::hard_delete_task(Arc::clone(&conn), task.id.clone()).await?;
+            changed = true;
+            continue;
+        }
+
         let due_date_str = task.due_date.map(|dt| dt.to_rfc3339());
         let due_date: Option<&str> = due_date_str.as_deref();
         let updated_at = task.updated_at.to_rfc3339();
@@ -83,7 +92,7 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
     let rows = pg
         .query(
             "SELECT id, project_id, title, content, due_date, priority, repeat_flag,
-                    status, is_all_day, updated_at, sort_order
+                    status, is_all_day, updated_at, sort_order, deleted
              FROM tasks
              WHERE updated_at > $1",
             &[&watermark],
@@ -91,6 +100,16 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
         .await?;
 
     for row in &rows {
+        let task_id: String = row.get(0);
+        let deleted_int: i32 = row.try_get(11).unwrap_or(0);
+
+        if deleted_int != 0 {
+            // Row was deleted on another client — hard-delete it locally.
+            local::hard_delete_task(Arc::clone(&conn), task_id).await?;
+            changed = true;
+            continue;
+        }
+
         let due_date_str: Option<String> = row.get(4);
         let due_date = due_date_str
             .as_deref()
@@ -105,7 +124,7 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
         let is_all_day_int: i32 = row.get(8);
 
         let task = crate::tasks::Task {
-            id: row.get(0),
+            id: task_id,
             project_id: row.get(1),
             title: row.get(2),
             content: row.get(3),
@@ -117,6 +136,7 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
             sort_order: row.get::<_, i32>(10) as i64,
             updated_at,
             synced_at: Some(Utc::now()),
+            deleted: false,
         };
         local::upsert_task(Arc::clone(&conn), task).await?;
         changed = true;

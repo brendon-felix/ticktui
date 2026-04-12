@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority    INTEGER NOT NULL DEFAULT 0,
     repeat_flag TEXT NOT NULL DEFAULT '',
     status      INTEGER NOT NULL DEFAULT 0,
+    deleted     INTEGER NOT NULL DEFAULT 0,
     is_all_day  INTEGER NOT NULL DEFAULT 0,
     sort_order  INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),

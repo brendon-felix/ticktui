@@ -102,7 +102,18 @@ impl App {
         let conn = Arc::clone(&self.db.conn);
         let pending = Arc::clone(&self.pending_tasks);
         tokio::spawn(async move {
-            match crate::db::local::fetch_all_tasks(conn).await {
+            // If no Postgres sync is configured, soft-deleted rows will never be
+            // pushed anywhere — hard-delete them immediately as a cleanup step.
+            if std::env::var("DATABASE_URL").is_err() {
+                if let Ok(dirty) = crate::db::local::fetch_dirty_tasks(Arc::clone(&conn)).await {
+                    for task in dirty.iter().filter(|t| t.deleted) {
+                        let _ =
+                            crate::db::local::hard_delete_task(Arc::clone(&conn), task.id.clone())
+                                .await;
+                    }
+                }
+            }
+            match crate::db::local::fetch_all_tasks_including_completed(conn).await {
                 Ok(tasks) => {
                     if let Ok(mut guard) = pending.lock() {
                         *guard = Some(tasks);

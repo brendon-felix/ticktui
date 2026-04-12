@@ -27,6 +27,7 @@ pub enum View {
     Inbox,
     // Project(ProjectID),
     All,
+    Completed,
 }
 
 impl View {
@@ -37,6 +38,7 @@ impl View {
             View::Week => "This Week",
             View::Inbox => "Inbox",
             View::All => "All Tasks",
+            View::Completed => "Completed",
             // View::Project(project_id) => "Project", // Placeholder
         };
         s.into()
@@ -44,11 +46,12 @@ impl View {
 
     pub fn contains_task(&self, now: DateTime<Utc>, task: &Arc<Task>) -> bool {
         match self {
-            View::Today => is_due_today(now, task) | is_overdue(now, task),
-            View::Tomorrow => is_due_tomorrow(now, task),
-            View::Week => is_due_this_week(now, task),
-            View::Inbox => is_in_inbox(task),
-            View::All => true,
+            View::Today => (is_due_today(now, task) | is_overdue(now, task)) && task.status != 2,
+            View::Tomorrow => is_due_tomorrow(now, task) && task.status != 2,
+            View::Week => is_due_this_week(now, task) && task.status != 2,
+            View::Inbox => is_in_inbox(task) && task.status != 2,
+            View::All => task.status != 2,
+            View::Completed => task.status == 2,
             // View::Project(project_id) => {
             //     // Implement filtering logic for tasks in the specified project
             //     true
@@ -91,6 +94,7 @@ impl ViewSelector {
                 View::Week,
                 View::Inbox,
                 View::All,
+                View::Completed,
             ],
             list_state: ListState::default().with_selected(Some(0)),
             style: Style::default(),
