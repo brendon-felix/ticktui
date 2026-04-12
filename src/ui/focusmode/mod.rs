@@ -1,11 +1,11 @@
 mod helpers;
 
+use crate::tasks::Task;
 use chrono::Utc;
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{Frame, layout::Rect};
 use std::{sync::Arc, time::Instant};
 use tachyonfx::EffectManager;
-use ticks::tasks::{Task, TaskID};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -40,7 +40,7 @@ pub enum FocusModeAction {
 pub struct FocusModeUI {
     // test_content: String,
     all_tasks: Arc<Vec<Arc<Task>>>,
-    shown_tasks: Vec<TaskID>,
+    shown_tasks: Vec<String>,
     current_view: Option<View>,
     list: FocusList<'static>,
     list_state: FocusListState,
@@ -119,8 +119,7 @@ impl FocusModeUI {
             self.shown_tasks = self
                 .all_tasks
                 .iter()
-                .map(|task| task.get_id())
-                .cloned()
+                .map(|task| task.get_id().to_owned())
                 .collect();
         }
         if self.shown_tasks.is_empty() {
@@ -142,7 +141,11 @@ impl FocusModeUI {
     fn get_focused_task(&self) -> Option<(usize, Arc<Task>)> {
         if let Some(idx) = self.list.focused_index() {
             if let Some(task_id) = self.shown_tasks.get(idx) {
-                if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
+                if let Some(task) = self
+                    .all_tasks
+                    .iter()
+                    .find(|t| t.get_id() == task_id.as_str())
+                {
                     return Some((idx, Arc::clone(&task)));
                 }
             }
@@ -217,7 +220,11 @@ impl FocusModeUI {
         let items: Vec<FocusListItem> = self
             .shown_tasks
             .iter()
-            .filter_map(|task_id| self.all_tasks.iter().find(|t| t.get_id() == task_id))
+            .filter_map(|task_id| {
+                self.all_tasks
+                    .iter()
+                    .find(|t| t.get_id() == task_id.as_str())
+            })
             .map(|task| create_list_item(task))
             .collect();
         self.list.set_items(items);

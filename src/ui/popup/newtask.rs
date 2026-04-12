@@ -27,7 +27,6 @@ use crate::{
     },
 };
 use chrono::Local;
-use ticks::projects::ProjectID;
 
 pub struct NewTaskPopup {
     editor: Editor,
@@ -140,7 +139,7 @@ fn parse(content: &str, view: View) -> TaskData {
                 user_specified_date = true;
             }
             TokenType::Priority(priority) => {
-                data.priority = Some(priority);
+                data.priority = Some(priority.to_i64());
             }
             TokenType::ProjectName(project_name) => {
                 // You may need to map project names to ProjectIDs
@@ -267,7 +266,7 @@ fn parse(content: &str, view: View) -> TaskData {
     if !user_specified_project {
         match view {
             View::Inbox => {
-                data.project_id = Some(ProjectID("inbox".to_string()));
+                data.project_id = Some("inbox".to_string());
             }
             _ => {
                 // For other views, don't set a default project

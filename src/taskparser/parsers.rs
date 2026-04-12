@@ -1,5 +1,5 @@
+use crate::tasks::TaskPriority;
 use chrono::{Datelike, Local, NaiveDate};
-use ticks::tasks::TaskPriority;
 
 use crate::{
     taskparser::{

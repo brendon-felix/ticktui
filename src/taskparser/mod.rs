@@ -2,10 +2,10 @@ pub mod parsers;
 pub mod parseutils;
 pub mod timeutils;
 
+use crate::tasks::TaskPriority;
 use chrono::{DateTime, Local};
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
-use ticks::tasks::TaskPriority;
 
 use crate::taskparser::parsers::{DueDateParser, PriorityParser, ProjectNameParser, RepeatParser};
 use crate::tasks::RepeatFlag;

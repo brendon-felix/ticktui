@@ -4,12 +4,12 @@ use std::{
     sync::{Arc, Mutex},
     time::Instant,
 };
-use ticks::{TickTick, tasks::Task};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::{
+    db::Db,
     debug,
-    tasks::{self, TaskAction, TaskData, fetch_all_tasks},
+    tasks::{Task, TaskAction, TaskData},
     term::{self, AppTerminal},
     ui::{AppUI, UIAction},
 };
@@ -23,7 +23,6 @@ pub enum AppAction {
     RefreshData,
     UpdateCache,
     TaskAction(TaskAction, TaskData),
-    // RescheduleMultipleTasks(Vec<TaskData>),
     UIAction(UIAction),
     MultiAction(Vec<AppAction>),
     AfterNTicks(u32, Box<AppAction>),
@@ -35,7 +34,7 @@ pub struct PendingAction {
 }
 
 pub struct App {
-    client: Arc<TickTick>,
+    db: Arc<Db>,
     cached_tasks: Arc<Vec<Arc<Task>>>,
     pending_tasks: Arc<Mutex<Option<Vec<Task>>>>,
     pending_action: Option<PendingAction>,
@@ -47,7 +46,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(client: Arc<TickTick>) -> Result<Self> {
+    pub fn new(db: Arc<Db>) -> Result<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
         let cached_tasks = Arc::new(Vec::new());
         let pending_tasks = Arc::new(Mutex::new(None));
@@ -55,9 +54,9 @@ impl App {
         let ti = AppTerminal::new()?;
         let ui = AppUI::new(tx.clone());
         let quitting = false;
-        debug::init_debug_sender(tx.clone());
+        crate::debug::init_debug_sender(tx.clone());
         Ok(Self {
-            client,
+            db,
             cached_tasks,
             pending_tasks,
             pending_action,
@@ -73,6 +72,13 @@ impl App {
         let tx = self.tx.clone();
         self.ti.enter()?;
         self.tx.send(AppAction::RefreshData)?;
+
+        // Start optional Postgres sync loop if DATABASE_URL is set
+        if let Ok(pg_url) = std::env::var("DATABASE_URL") {
+            let conn = Arc::clone(&self.db.conn);
+            let sync_tx = self.tx.clone();
+            tokio::spawn(crate::db::sync::run_sync_loop(conn, pg_url, sync_tx));
+        }
 
         loop {
             if let Some(event) = self.ti.next().await {
@@ -93,20 +99,17 @@ impl App {
     }
 
     fn refresh_tasks(&mut self, tx: UnboundedSender<AppAction>) {
-        let client = Arc::clone(&self.client);
+        let conn = Arc::clone(&self.db.conn);
         let pending = Arc::clone(&self.pending_tasks);
         tokio::spawn(async move {
-            match fetch_all_tasks(&client).await {
+            match crate::db::local::fetch_all_tasks(conn).await {
                 Ok(tasks) => {
-                    // Store the tasks in pending storage
                     if let Ok(mut guard) = pending.lock() {
                         *guard = Some(tasks);
                     }
                     let _ = tx.send(AppAction::UpdateCache);
                 }
                 Err(e) => {
-                    // let _ = tx.send(AppAction::UIAction(UIAction::DebugMsg(e.to_string())));
-                    // debug_msg(&e.to_string(), 20, &tx);
                     debug!("{}", &e.to_string());
                 }
             }
@@ -128,7 +131,6 @@ impl App {
 
     fn handle_event(&mut self, event: term::Event, tx: &UnboundedSender<AppAction>) -> Result<()> {
         match event {
-            // term::Event::Quit => tx.send(AppAction::Quit)?,
             term::Event::Tick => tx.send(AppAction::Tick)?,
             term::Event::Render(last) => tx.send(AppAction::Render(last))?,
             term::Event::Resize(w, h) => tx.send(AppAction::Resize(w, h))?,
@@ -197,9 +199,6 @@ impl App {
             AppAction::RefreshData => self.refresh_tasks(tx.clone()),
             AppAction::UpdateCache => self.update_cache(),
             AppAction::TaskAction(action, data) => self.execute_task_action(action, data, tx),
-            // AppAction::RescheduleMultipleTasks(task_data_list) => {
-            //     self.execute_reschedule_multiple_tasks(task_data_list, tx)
-            // }
             AppAction::UIAction(action) => self.ui.execute_action(action, tx),
             AppAction::MultiAction(actions) => {
                 for act in actions {
@@ -222,31 +221,31 @@ impl App {
         data: TaskData,
         tx: &UnboundedSender<AppAction>,
     ) {
-        let client = Arc::clone(&self.client);
-        // let _ = self.tx.send(AppAction::UIAction(UIAction::DebugMsg(format!(
-        //     "Executing task action: {:?} with data: {:?}",
-        //     action, data
-        // ))));
+        let conn = Arc::clone(&self.db.conn);
+        let tx_clone = tx.clone();
         let _ = tokio::spawn(async move {
-            match action {
-                TaskAction::Create => tasks::create_task(&client, data).await,
-                TaskAction::Edit => tasks::edit_task(&client, data).await,
-                TaskAction::Complete => tasks::complete_task(&client, data).await,
-                TaskAction::Delete => tasks::delete_task(&client, data).await,
+            let result: anyhow::Result<()> = match action {
+                TaskAction::Create => crate::db::local::create_task(conn, data).await.map(|_| ()),
+                TaskAction::Edit => crate::db::local::edit_task(conn, data).await,
+                TaskAction::Complete => {
+                    let id = data.task_id.unwrap_or_default();
+                    crate::db::local::complete_task(conn, id).await
+                }
+                TaskAction::Delete => {
+                    let id = data.task_id.unwrap_or_default();
+                    crate::db::local::delete_task(conn, id).await
+                }
+            };
+            match result {
+                Ok(()) => {
+                    let _ = tx_clone.send(AppAction::RefreshData);
+                }
+                Err(e) => {
+                    debug!("{}", e.to_string());
+                }
             }
         });
-        self.refresh_tasks(tx.clone())
     }
-
-    // fn execute_reschedule_multiple_tasks(
-    //     &mut self,
-    //     task_data_list: Vec<TaskData>,
-    //     tx: &UnboundedSender<AppAction>,
-    // ) {
-    //     let client = Arc::clone(&self.client);
-    //     let _ = tokio::spawn(async move { tasks::reschedule_tasks(&client, task_data_list).await });
-    //     self.refresh_tasks(tx.clone())
-    // }
 
     fn render(&mut self, last_frame: Instant) -> Result<()> {
         self.ti.draw(|f| {
@@ -254,6 +253,4 @@ impl App {
         })?;
         Ok(())
     }
-
-    // fn error(&mut self, _message: String) {}
 }

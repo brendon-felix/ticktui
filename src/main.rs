@@ -1,37 +1,27 @@
 mod app;
-mod auth;
+mod db;
 mod debug;
 mod taskparser;
 mod tasks;
 mod term;
 mod ui;
-// mod utils;
 
-use anyhow::{Result, anyhow};
-use std::sync::Arc;
-use ticks::{AccessToken, TickTick};
+use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (client_id, client_secret) = auth::get_client_id()?;
-    let access_token = auth::get_access_token(client_id, client_secret).await?;
-    run(access_token).await?;
-    Ok(())
-}
+    // Determine database path: $HOME/.local/share/ticktui/tasks.db
+    let db_path = {
+        let mut p = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        p.push("ticktui");
+        std::fs::create_dir_all(&p)?;
+        p.push("tasks.db");
+        p.to_string_lossy().to_string()
+    };
 
-async fn run(access_token: ticks::AccessToken) -> Result<()> {
-    let client = Arc::new(create_client(access_token)?);
-    let mut app = app::App::new(client)?;
+    let db = db::Db::open(&db_path)?;
+
+    let mut app = app::App::new(db)?;
     app.run().await?;
     Ok(())
-}
-
-fn create_client(access_token: AccessToken) -> Result<TickTick> {
-    match TickTick::new(access_token) {
-        Ok(c) => Ok(c),
-        Err(e) => {
-            auth::clear_token_cache();
-            Err(anyhow!("Failed to create TickTick client: {:?}", e))
-        }
-    }
 }

@@ -1,3 +1,4 @@
+use crate::tasks::Task;
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use ratatui::{
     Frame,
@@ -5,7 +6,6 @@ use ratatui::{
 };
 use std::{sync::Arc, time::Instant};
 use tachyonfx::EffectManager;
-use ticks::tasks::Task;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{

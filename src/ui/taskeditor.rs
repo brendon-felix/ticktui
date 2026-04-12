@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use crate::tasks::{Task, TaskPriority};
 use chrono::{Local, TimeZone, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -12,7 +13,6 @@ use tachyonfx::{
     EffectManager, EffectTimer, Interpolation,
     fx::{self},
 };
-use ticks::tasks::{Task, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
 use tui_textarea::Input;
 
@@ -187,13 +187,13 @@ impl TaskEditor {
 
     pub fn load_task(&mut self, task: &Task) {
         self.set_title_content(&task.title);
-        if task.due_date.timestamp() > 0 {
-            let due_date_str = utils::format_datetime(task.due_date, task.is_all_day);
+        if task.due_date.map(|d| d.timestamp() > 0).unwrap_or(false) {
+            let due_date_str = utils::format_datetime(task.due_date.unwrap(), task.is_all_day);
             self.set_due_date_content(&due_date_str);
         } else {
             self.set_due_date_content("");
         }
-        match task.priority {
+        match task.priority() {
             TaskPriority::High => {
                 self.set_priority_content("P1");
                 self.set_priority_color(Color::LightRed);
@@ -253,7 +253,7 @@ impl TaskEditor {
 
         if !priority_input.is_empty() {
             if let Some(priority) = parse_priority(&priority_input) {
-                data = data.priority(priority);
+                data = data.priority(priority.to_i64());
             }
         }
 

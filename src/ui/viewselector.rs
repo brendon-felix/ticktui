@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
+use crate::tasks::Task;
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -9,7 +10,6 @@ use ratatui::{
     text::Line,
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
 };
-use ticks::tasks::{Task, TaskID};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -42,7 +42,7 @@ impl View {
         s.into()
     }
 
-    pub fn contains_task(&self, now: DateTime<Utc>, task: &Task) -> bool {
+    pub fn contains_task(&self, now: DateTime<Utc>, task: &Arc<Task>) -> bool {
         match self {
             View::Today => is_due_today(now, task) | is_overdue(now, task),
             View::Tomorrow => is_due_tomorrow(now, task),
@@ -60,17 +60,11 @@ impl View {
         &self,
         now: DateTime<Utc>,
         all_tasks: &Vec<Arc<Task>>,
-    ) -> Vec<TaskID> {
-        // all_tasks
-        //     .iter()
-        //     .filter(|task| self.contains_task(now, task))
-        //     .map(|task| task.get_id())
-        //     .collect()
+    ) -> Vec<String> {
         all_tasks
             .iter()
             .filter(|task| self.contains_task(now, task))
-            .map(|task| task.get_id())
-            .cloned()
+            .map(|task| task.get_id().to_owned())
             .collect()
     }
 }

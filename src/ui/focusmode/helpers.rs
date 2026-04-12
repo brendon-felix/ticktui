@@ -1,3 +1,4 @@
+use crate::tasks::{Task, TaskPriority};
 use chrono::Utc;
 use ratatui::{
     Frame,
@@ -8,7 +9,6 @@ use ratatui::{
 };
 use std::{sync::Arc, time::Duration};
 use tachyonfx::{EffectManager, EffectTimer, Interpolation, RefRect, fx};
-use ticks::tasks::{Task, TaskPriority};
 
 use crate::{
     tasks::is_overdue,
@@ -33,7 +33,10 @@ pub fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
     let line1 = Line::from("");
     let line2 = Line::from(task.title.clone());
     // let line3 = if let Some(date_str) = format_date(&task.due_date, task.is_all_day, is_today) {
-    let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+    let datetime_str = task
+        .due_date
+        .map(|d| utils::format_datetime(d, task.is_all_day))
+        .unwrap_or_default();
 
     // // Add repeat flag if present
     // let repeat_flag = if !task.repeat_flag.is_empty() {
@@ -60,7 +63,7 @@ pub fn create_list_item(task: &Arc<Task>) -> FocusListItem<'static> {
         line
     };
     let mut item = FocusListItem::new(vec![line1, line2, line3]);
-    match task.priority {
+    match task.priority() {
         TaskPriority::High => item = item.with_border_color(Color::Red),
         TaskPriority::Medium => item = item.with_border_color(Color::Yellow),
         TaskPriority::Low => item = item.with_border_color(Color::Blue),

@@ -1,3 +1,4 @@
+use crate::tasks::{Task, TaskPriority};
 use chrono::{DateTime, Utc};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
@@ -9,7 +10,6 @@ use ratatui::{
 };
 use std::{sync::Arc, time::Instant};
 use tachyonfx::{EffectManager, EffectTimer, Interpolation, Motion, fx};
-use ticks::tasks::{Task, TaskID, TaskPriority};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -26,7 +26,7 @@ use crate::{
 
 pub struct TaskList {
     all_tasks: Arc<Vec<Arc<Task>>>,
-    shown_tasks: Vec<TaskID>,
+    shown_tasks: Vec<String>,
     // filtered_indices: Vec<usize>,
     list_left: MultiSelectList<'static>,
     list_right: MultiSelectList<'static>,
@@ -170,7 +170,7 @@ impl TaskList {
             .iter()
             .filter_map(|task_id| {
                 self.all_tasks.iter().find_map(|task| {
-                    if task.get_id() == task_id {
+                    if task.get_id() == task_id.as_str() {
                         Some(create_list_left_item(task))
                     } else {
                         None
@@ -185,7 +185,7 @@ impl TaskList {
             .iter()
             .filter_map(|task_id| {
                 self.all_tasks.iter().find_map(|task| {
-                    if task.get_id() == task_id {
+                    if task.get_id() == task_id.as_str() {
                         Some(create_list_right_item(now, task))
                     } else {
                         None
@@ -213,10 +213,14 @@ impl TaskList {
         }
     }
 
-    pub fn remove_task(&mut self, task_id: TaskID) {
-        if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == &task_id) {
+    pub fn remove_task(&mut self, task_id: String) {
+        if let Some(task) = self
+            .all_tasks
+            .iter()
+            .find(|t| t.get_id() == task_id.as_str())
+        {
             let data = TaskData::default()
-                .task_id(task.get_id().clone())
+                .task_id(task.get_id().to_owned())
                 .project_id(task.project_id.clone());
             let task_action = AppAction::TaskAction(TaskAction::Delete, data);
             let msg =
@@ -251,7 +255,7 @@ impl TaskList {
                 // });
                 let task_actions = self.shown_tasks[s..=e].iter().filter_map(|task_id| {
                     self.all_tasks.iter().find_map(|task| {
-                        if task.get_id() == task_id {
+                        if task.get_id() == task_id.as_str() {
                             let data = TaskData::from_task(&task);
                             Some(AppAction::TaskAction(TaskAction::Delete, data))
                         } else {
@@ -289,7 +293,7 @@ impl TaskList {
         self.list_state.selected().and_then(|selected_idx| {
             self.shown_tasks.get(selected_idx).and_then(|task_id| {
                 self.all_tasks.iter().find_map(|task| {
-                    if task.get_id() == task_id {
+                    if task.get_id() == task_id.as_str() {
                         Some(Arc::clone(task))
                     } else {
                         None
@@ -311,7 +315,11 @@ impl TaskList {
                 let mut selected_tasks = Vec::new();
                 for i in s..=e {
                     if let Some(task_id) = self.shown_tasks.get(i) {
-                        if let Some(task) = self.all_tasks.iter().find(|t| t.get_id() == task_id) {
+                        if let Some(task) = self
+                            .all_tasks
+                            .iter()
+                            .find(|t| t.get_id() == task_id.as_str())
+                        {
                             selected_tasks.push(Arc::clone(task));
                         }
                     }
@@ -436,13 +444,13 @@ impl TaskList {
 fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
     // let line1 = Line::from("");
     let mut spans = vec![Span::from(task.title.clone()).style(Style::default())];
-    if let Some(priority_syle) = match task.priority {
-        TaskPriority::High => Style::default().fg(Color::Red).into(),
-        TaskPriority::Medium => Style::default().fg(Color::Yellow).into(),
-        TaskPriority::Low => Style::default().fg(Color::Blue).into(),
+    if let Some(priority_style) = match task.priority() {
+        TaskPriority::High => Some(Style::default().fg(Color::Red)),
+        TaskPriority::Medium => Some(Style::default().fg(Color::Yellow)),
+        TaskPriority::Low => Some(Style::default().fg(Color::Blue)),
         TaskPriority::None => None,
     } {
-        let priority_symbol = Span::from("● ").style(priority_syle);
+        let priority_symbol = Span::from("● ").style(priority_style);
         spans.insert(0, priority_symbol);
     }
     let line2 = Line::from(spans);
@@ -453,8 +461,8 @@ fn create_list_left_item(task: &Arc<Task>) -> MultiSelectListItem<'static> {
 
 fn create_list_right_item(now: DateTime<Utc>, task: &Arc<Task>) -> MultiSelectListItem<'static> {
     // let line1 = Line::from("");
-    let line2 = if task.due_date.timestamp() > 0 {
-        let datetime_str = utils::format_datetime(task.due_date, task.is_all_day);
+    let line2 = if task.due_date.map(|d| d.timestamp() > 0).unwrap_or(false) {
+        let datetime_str = utils::format_datetime(task.due_date.unwrap(), task.is_all_day);
         let mut spans = vec![Span::from(datetime_str)];
 
         // Add repeat flag if present

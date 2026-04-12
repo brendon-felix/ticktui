@@ -20,10 +20,10 @@ mod tasklist;
 mod utils;
 mod viewselector;
 
+use crate::tasks::Task;
 use focusmode::FocusModeUI;
 use normalmode::NormalModeUI;
 use std::{sync::Arc, time::Instant};
-use ticks::tasks::Task;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
