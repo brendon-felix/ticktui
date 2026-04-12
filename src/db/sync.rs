@@ -23,6 +23,9 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
         let due_date: Option<&str> = due_date_str.as_deref();
         let updated_at = task.updated_at.to_rfc3339();
         let is_all_day: i32 = if task.is_all_day { 1 } else { 0 };
+        let priority: i32 = task.priority as i32;
+        let status: i32 = task.status as i32;
+        let sort_order: i32 = task.sort_order as i32;
 
         pg.execute(
             "INSERT INTO tasks (id, project_id, title, content, due_date, priority,
@@ -45,12 +48,12 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
                 &task.title.as_str(),
                 &task.content.as_str(),
                 &due_date,
-                &task.priority,
+                &priority,
                 &task.repeat_flag.as_str(),
-                &task.status,
+                &status,
                 &is_all_day,
                 &updated_at.as_str(),
-                &task.sort_order,
+                &sort_order,
             ],
         )
         .await?;
@@ -107,11 +110,11 @@ pub async fn sync_once(conn: Arc<Mutex<Connection>>, pg: &PgClient) -> Result<bo
             title: row.get(2),
             content: row.get(3),
             due_date,
-            priority: row.get::<_, i64>(5),
+            priority: row.get::<_, i32>(5) as i64,
             repeat_flag: row.get(6),
-            status: row.get::<_, i64>(7),
+            status: row.get::<_, i32>(7) as i64,
             is_all_day: is_all_day_int != 0,
-            sort_order: row.get::<_, i64>(10),
+            sort_order: row.get::<_, i32>(10) as i64,
             updated_at,
             synced_at: Some(Utc::now()),
         };
